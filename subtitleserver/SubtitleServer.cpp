@@ -808,6 +808,10 @@ void SubtitleServer::sendUiEvent(SubtitleHidlParcel &event) {
     }
 
     auto r = mFallbackCallback->uiCommandCallback(event);
+    if (!r.isOk()) {
+        SUBTITLE_LOGE("SubtitleServer::sendUiEvent failed to send UI event");
+        return;
+    }
 }
 
 
