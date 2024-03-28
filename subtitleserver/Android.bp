@@ -84,6 +84,7 @@ cc_binary {
     "utils/ringbuffer.c",
     "utils/Segment.cpp",
     "utils/VideoInfo.cpp",
+    "utils/Watchdog.cpp",
 
     "io/DataSourceFactory.cpp",
     "io/Demux.c",
