@@ -2484,9 +2484,9 @@ dtvcc_put_char			(struct dtvcc_decoder *	dc,
 	/*1、now sarnoff football.ts first line cc not set dtvcc_command, and when stream play from head
 	 *sequence number will change, and call dtvcc_reset();so here dw will be null, this line cc will
 	 *lost, so we add (NULL == dw && c == 0x3e) and set default command for workaround
-	 *2、New testing has found some special cc streams, not only the first line cc has not been set
-	 *with not set dtvcc_command, so we only keep (NULL==dw)*/
-	if (NULL == dw) {
+	 *2、Some special streams and serial port information contain 0x99 and 0x38,
+	 *but they are not complete commands, so the default window is set*/
+	if ((NULL == dw && c == 0x3e) || dc->dtvcc_no_whole_command_data) {
 		ALOGE("debug-cc window null! cc frame is not set window command, try set default!");
 		dtvcc_default_command(dc, ds);
 		dw = ds->curr_window;
