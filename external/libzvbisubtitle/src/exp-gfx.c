@@ -792,22 +792,42 @@ vbi_draw_vt_page_region(vbi_page *pg,
 		return;
 	}
 
-	#ifdef NEED_TELETEXT_GRAPHICS_SUBTITLE_PAGENUMBER_BLACKGROUND
-		if (pg->pgno < 0) {
-			ALOGI("amlogic do not display page number pg->pgno:0x%03x.%04x", pg->pgno, pg->subno);
-		} else if ((pg->pgno >0x99) && (pg->pgno <0x900)) {
-			snprintf (page_no_buf, sizeof (page_no_buf), "P%x.%04x", pg->pgno, pg->subno);
-		} else	if((pg->pgno >0) && (pg->pgno <0x10)){
-			snprintf (page_no_buf, sizeof (page_no_buf), "P%x--.%4x", pg->pgno, pg->subno);
-		} else	if(pg->pgno == 0){
-			pg->pgno = 0x100;
-			snprintf (page_no_buf, sizeof (page_no_buf), "P%x.%4x", pg->pgno, pg->subno);
-		} else {
-			snprintf (page_no_buf, sizeof (page_no_buf), "P%x-.%4x", pg->pgno, pg->subno);
-		}
+	#ifdef NEED_TELETEXT_REMOVE_SUBPAGE_DISPLAY
+		#ifdef NEED_TELETEXT_GRAPHICS_SUBTITLE_PAGENUMBER_BLACKGROUND
+			if (pg->pgno < 0) {
+				ALOGI("amlogic do not display page number pg->pgno:%d ", pg->pgno);
+			} else if ((pg->pgno >0x99) && (pg->pgno <0x900)) {
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x", pg->pgno);
+			} else	if((pg->pgno >0) && (pg->pgno <0x10)){
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x--", pg->pgno);
+			} else	if(pg->pgno == 0){
+				pg->pgno = 0x100;
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x", pg->pgno);
+			} else {
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x-", pg->pgno);
+			}
+		#else
+			snprintf (page_no_buf, sizeof (page_no_buf),
+					"P%x    ", pg->pgno);
+		#endif
 	#else
-		snprintf (page_no_buf, sizeof (page_no_buf),
-				"P%x.%4x", pg->pgno, pg->subno);
+		#ifdef NEED_TELETEXT_GRAPHICS_SUBTITLE_PAGENUMBER_BLACKGROUND
+			if (pg->pgno < 0) {
+				ALOGI("amlogic do not display page number pg->pgno:0x%03x.%04x", pg->pgno, pg->subno);
+			} else if ((pg->pgno >0x99) && (pg->pgno <0x900)) {
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x.%04x", pg->pgno, pg->subno);
+			} else	if((pg->pgno >0) && (pg->pgno <0x10)){
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x--.%4x", pg->pgno, pg->subno);
+			} else	if(pg->pgno == 0){
+				pg->pgno = 0x100;
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x.%4x", pg->pgno, pg->subno);
+			} else {
+				snprintf (page_no_buf, sizeof (page_no_buf), "P%x-.%4x", pg->pgno, pg->subno);
+			}
+		#else
+			snprintf (page_no_buf, sizeof (page_no_buf),
+					"P%x.%4x", pg->pgno, pg->subno);
+		#endif
 	#endif
 
 	if (0) {

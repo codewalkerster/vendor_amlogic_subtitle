@@ -69,7 +69,11 @@ do {									\
 #define SUBPAGE_NUMBER_THIRD_DIGIT  3
 #define SUBPAGE_NUMBER_FOURTH_DIGIT 4
 
+#ifdef NEED_TELETEXT_REMOVE_SUBPAGE_DISPLAY
+#define PAGE_SUBPAGE_NUMBER_DIGIT   8
+#else
 #define PAGE_SUBPAGE_NUMBER_DIGIT   11
+#endif
 
 
 extern const char _zvbi_intl_domainname[];
@@ -2833,6 +2837,23 @@ vbi_format_vt_page(vbi_decoder *vbi,
 	/* Current page number in header */
 
 	//snprintf (buf, sizeof (buf),
+	#ifdef NEED_TELETEXT_REMOVE_SUBPAGE_DISPLAY
+	if (vbi->vt.use_subtitleserver) {
+		if ((vbi->vt.goto_page >0x99) && (vbi->vt.goto_page <0x900)) {
+			snprintf (buf, sizeof (buf), "P%x    ", vbi->vt.goto_page);
+		} else	if((vbi->vt.goto_page >0) && (vbi->vt.goto_page <0x10)){
+			snprintf (buf, sizeof (buf), "P%x--    ", vbi->vt.goto_page);
+		} else	if(vbi->vt.goto_page == 0){
+			  vbi->vt.goto_page = 0x100;
+			snprintf (buf, sizeof (buf), "P%x    ", vbi->vt.goto_page);
+		} else {
+			snprintf (buf, sizeof (buf), "P%x-    ", vbi->vt.goto_page);
+		}
+	} else {
+		snprintf (buf, sizeof (buf),
+			"P%x    ", vbi->vt.goto_page);
+	}
+	#else
 	if (vbi->vt.use_subtitleserver) {
 		if ((vbi->vt.goto_page >0x99) && (vbi->vt.goto_page <0x900)) {
 			if (vbi->vt.subpage_mode) {
@@ -2863,6 +2884,7 @@ vbi_format_vt_page(vbi_decoder *vbi,
 		snprintf (buf, sizeof (buf),
 			"P%x.%04x  ", vbi->vt.goto_page, vbi->vt.current_subno);
 	}
+	#endif
 	/* Level 1 formatting */
 
 	i = 0;
