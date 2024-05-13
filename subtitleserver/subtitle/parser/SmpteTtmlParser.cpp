@@ -86,19 +86,17 @@ bool save2PngFile(const char* filename, const void* data, size_t dataSize) {
     return true;
 }
 
-static void save2BitmapFile(const char *filename, uint32_t *bitmap, int w, int h)
-{
-    SUBTITLE_LOGI("png_save2:%s\n",filename);
+static void save2BitmapFile(const char *filename, uint32_t *bitmap, int w, int h) {
     FILE *f;
     char fname[50];
 
     snprintf(fname, sizeof(fname), "%s", filename);
     f = fopen(fname, "w");
     if (!f) {
-        perror(fname);
+        SUBTITLE_LOGE("Error cannot open file %s!", fname);
         return;
     }
-    fprintf(f, "P6\n%d %d\n%d\n", w, h, 255);
+    fprintf(f, "P6\n" "%d %d\n" "%d\n", w, h, 255);
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             int v = bitmap[y * w + x];
@@ -277,8 +275,15 @@ void decodePng(std::shared_ptr<AML_SPUVAR> spu, const char* png_data, size_t png
 
     // Copy image data from row_pointers to the image_data buffer
     for (int y = 0; y < resize_height; y++) {
-        for (int x = 0; x < resize_width* 4; x++) {
-            spu->spu_data[index++] = row_pointers[y][x];
+        for (int x = 0; x < resize_width; x++) {
+            // Red channel
+            spu->spu_data[index++] = row_pointers[y][x * 4 + 2];
+            // Green channel
+            spu->spu_data[index++] = row_pointers[y][x * 4 + 1];
+            // Blue channel
+            spu->spu_data[index++] = row_pointers[y][x * 4];
+            // Alpha channel
+            spu->spu_data[index++] = row_pointers[y][x * 4 + 3];
         }
     }
     spu->spu_width = resize_width;
@@ -681,7 +686,7 @@ int SmpteTtmlParser::SmpteTtmlDecodeFrame(char *srcData, int srcLen, int64_t bas
             snprintf(filename, sizeof(filename), "/tmp/subtitleDump/smpte_tt(%lld).png", spu->pts);
             save2PngFile(filename, reinterpret_cast<const char*>(binaryImageData.data()), binaryImageData.size());
             char filename2[50];
-            snprintf(filename2, sizeof(filename2), "/tmp/subtitleDump/smpte_tt(%lld).bmp", spu->pts);
+            snprintf(filename2, sizeof(filename2), "/tmp/subtitleDump/smpte_tt(%lld).ppm", spu->pts);
             save2BitmapFile(filename2, (uint32_t *)spu->spu_data, spu->spu_width, spu->spu_height);
         }
         addDecodedItem(std::shared_ptr<AML_SPUVAR>(spu));
