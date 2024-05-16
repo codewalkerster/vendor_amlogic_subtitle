@@ -250,8 +250,9 @@ static inline void readColorTable(unsigned char *buf, int size, PgsInfo *pgsInfo
         G = Y - 0.395U - 0.581V
         B = Y + 2.032U
         */
+        // When the transparency near white is too low, convert it to an opaque state
         pgsInfo->palette[buf[pos]] =
-            ((r > 255 ? 255: r) << 24) | ((g > 255 ? 255: g) << 16) | ((b > 255 ? 255: b) << 8) | (buf[pos + 4] * 0x11);
+            ((r > 255 ? 255: r) << 24) | ((g > 255 ? 255: g) << 16) | ((b > 255 ? 255: b) << 8) | (((buf[pos + 4] <= 0x0E) && (buf[pos + 4] > 0x00) && (r > 200 &&  g > 200 && b > 200)) ? 0xFF : buf[pos + 4]);
     }
 }
 
