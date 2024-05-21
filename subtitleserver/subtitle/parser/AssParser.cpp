@@ -186,7 +186,24 @@ static inline int __getAssSpu(uint8_t*spuBuf, uint32_t length, std::shared_ptr<A
     if (-1 == nPos) {
         getline(ss, str);
     } else {
-        str = tempStr.substr(nPos, tempStr.length());
+        std::vector<std::string> tokens;
+        std::string token;
+        size_t start = 0;
+        size_t end = tempStr.find(",");
+        int count = 0;
+
+        while (end != std::string::npos && count < 8) {
+            tokens.push_back(tempStr.substr(start, end - start));
+            start = end + 1;
+            end = tempStr.find(",", start);
+            count++;
+        }
+        tokens.push_back(tempStr.substr(start));
+        if (tokens.size() >= 9) {
+            str = tokens[8];
+        } else {
+            SUBTITLE_LOGE("[%s] The string does not contain enough fields.", __FUNCTION__);
+        }
     }
     SUBTITLE_LOGI("[%s]-subtitle=%s", ss.str().c_str(), str.c_str());
     // currently not support style control code rendering
