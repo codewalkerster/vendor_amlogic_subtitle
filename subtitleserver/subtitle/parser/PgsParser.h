@@ -42,15 +42,17 @@ public:
     virtual void dump(int fd, const char *prefix);
 
 private:
-    int getSpu(std::shared_ptr<AML_SPUVAR> spu);
+    int getSpu(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray);
     int getInterSpu();
     void checkDebug();
-    int decode(std::shared_ptr<AML_SPUVAR> spu, unsigned char *psrc);
+    int decode(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray, unsigned char *psrc);
     int parserOnePgs(std::shared_ptr<AML_SPUVAR> spu);
 
-    int softDemuxParse(std::shared_ptr<AML_SPUVAR> spu);
-    int hwDemuxParse(std::shared_ptr<AML_SPUVAR> spu);
+    int softDemuxParse(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray);
+    int hwDemuxParse(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray);
     int mDumpSub;
+    int PGSFrameCount;
+    int PGSFrameCountMax;
 
     PgsSubtitleEpgs *mPgsEpgs;
 };

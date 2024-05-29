@@ -528,13 +528,14 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                     mSubtitlePts32Bit = true;
                 }
 
-                SUBTITLE_LOGI("Got  SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) type:%d timestamp:%lld",
+                SUBTITLE_LOGI("Got  SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) type:%d objectSegmentId:%d timestamp:%lld",
                         ns2ms(mPresent->mCurrentPresentRelativeTime),
                         ns2ms(mPresent->mStartTimeModifier),
                         spu->pts, spu->pts/DVB_TIME_MULTI,
                         spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
                         spu->spu_data, spu->spu_data,
-                        spu->subtitle_type, timestamp);
+                        spu->subtitle_type, spu->objectSegmentId,
+                        timestamp);
                 if (TYPE_SUBTITLE_CLOSED_CAPTION == spu->subtitle_type || (timestamp != 0 || (timestamp == 0 && spu->pts == 0))) {
                     mPresent->mEmittedShowingSpu.push_back(spu);
                     mPresent->mEmittedShowingSpu.sort(cmpSpu);
@@ -631,12 +632,13 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                                 mPresent->mEmittedShowingSpu.pop_front();
                             }
                         }
-                        SUBTITLE_LOGI("Show SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p)",
+                        SUBTITLE_LOGI("Show SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) spu->objectSegmentId:%d",
                                 ns2ms(mPresent->mCurrentPresentRelativeTime),
                                 ns2ms(mPresent->mStartTimeModifier),
                                 spu->pts, spu->pts/DVB_TIME_MULTI,
                                 spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
-                                spu->spu_data, spu->spu_data);
+                                spu->spu_data, spu->spu_data,
+                                spu->objectSegmentId);
                         if (spu->spu_data == nullptr) {
                              mPresent->mRender->hideSubtitleItem(spu);
                         } else {

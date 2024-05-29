@@ -50,7 +50,7 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
 
     if (mShowingSubs.size() <= 0) {
         if (queue != nullptr) {
-            for (int i=0; i<=mCurrentMaxObjectId; i++) {
+            for (int i=1; i<=mCurrentMaxObjectId; i++) {
                 SUBTITLE_LOGI("AndroidHidlRemoteRender:%s objectId=%d",__func__, i);
                 queue->postDisplayData(nullptr, mParseType, 0, 0, 0, 0, 0, 0, 0, FADING_SUB, i);
             }
@@ -77,6 +77,7 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
                 SUBTITLE_LOGE("Error! why not decoded spu_data, but push to show???");
                 continue;
             }
+            SUBTITLE_LOGE("nullptr pts:%lld, data=%p size=%d objectSegmentId=%d", (*it)->pts,(*it)->spu_data, (*it)->buffer_size, objectSegmentId);
         }
 
         width = (*it)->spu_width;
@@ -93,8 +94,8 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
         if (mCurrentMaxObjectId < objectSegmentId) mCurrentMaxObjectId = objectSegmentId;
         size = (*it)->buffer_size;
 
-        SUBTITLE_LOGI(" in AndroidHidlRemoteRender:%s type:%d, width=%d, height=%d data=%p size=%d",
-            __func__, mParseType,  width, height, (*it)->spu_data, (*it)->buffer_size);
+        SUBTITLE_LOGI(" in AndroidHidlRemoteRender:%s type:%d, width=%d, height=%d pts:%lld, data=%p size=%d objectSegmentId=%d",
+            __func__, mParseType,  width, height, (*it)->pts, (*it)->spu_data, (*it)->buffer_size, objectSegmentId);
         DisplayType  displayType = ParserFactory::getDisplayType(mParseType);
         if ((SUBTITLE_IMAGE_DISPLAY == displayType) && ((0 == width) || (0 == height))) {
            continue;
