@@ -60,11 +60,11 @@ enum AribB24FlagCode
 /** Error code of the Arib B24 module*/
 enum AribB24LanguageCode
 {
-    ARIB_B24_POR = 0,
-    ARIB_B24_JPN = 1,   /**< Invalid parameter*/
-    ARIB_B24_SPA = 2,
-    ARIB_B24_ENG = 3,
-    ARIB_B24_TGL = 4,
+    ARIB_B24_POR = 1,
+    ARIB_B24_JPN = 2,   /**< Invalid parameter*/
+    ARIB_B24_SPA = 3,
+    ARIB_B24_ENG = 4,
+    ARIB_B24_TGL = 5,
 };
 
 /*****************************************************************************

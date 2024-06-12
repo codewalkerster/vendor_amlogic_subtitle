@@ -212,6 +212,10 @@ DecodeStatus DecoderImpl::Decode(const uint8_t* pes_data, size_t length, int64_t
         }
 
         out_result.caption = std::move(caption_);
+        if (active_encoding_ ==  EncodingScheme::kARIB_STD_B24_JIS && request_encoding_ == EncodingScheme::kAuto) {
+            ALOGE("DecoderImpl DecodeStatus::kGotCaption, active_encoding_:%d request_encoding_:%d", active_encoding_, request_encoding_);
+            return DecodeStatus::kNoCaption;
+        }
         return DecodeStatus::kGotCaption;
     }
 

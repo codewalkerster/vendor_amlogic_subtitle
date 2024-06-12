@@ -203,6 +203,7 @@ int AribB24Parser::aribB24DecodeFrame(std::shared_ptr<AML_SPUVAR> spu, char *src
             aribcaptionDecoder.SetEncodingScheme(aribcaption::EncodingScheme::kARIB_STD_B24_UTF8);
         break;
         default:
+            aribcaptionDecoder.SetEncodingScheme(aribcaption::EncodingScheme::kAuto);
         break;
     }
 

@@ -75,7 +75,7 @@ Subtitle::Subtitle(bool isExtSub, int trackId, ParserEventNotifier *notifier) :
 
     mSubPrams->arib24Param.demuxId = -1;
     mSubPrams->arib24Param.pid= -1;
-    mSubPrams->arib24Param.languageCodeId = -1;
+    mSubPrams->arib24Param.languageCodeId = 0;
     mSubPrams->ttmlParam.demuxId = -1;
     mSubPrams->ttmlParam.pid= -1;
     mSubPrams->smpteTtmlParam.demuxId = 0;
