@@ -19,6 +19,7 @@ static long rar_tell(rar_stream_t *stream)
 }
 
 static int rar_seek(rar_stream_t *stream, long offset, int whence) {
+    int ret = -1;
     switch (whence)
     {
         case SEEK_SET:
@@ -49,8 +50,12 @@ static int rar_seek(rar_stream_t *stream, long offset, int whence) {
             //  errno = EINVAL;
             return -1;
     }
-    if (stream->fd >= 0 && lseek(stream->fd, stream->pos, SEEK_SET) > 0)
-        lseek(stream->fd, stream->pos, SEEK_SET);
+    if (stream->fd >= 0 && lseek(stream->fd, stream->pos, SEEK_SET) > 0) {
+        ret = lseek(stream->fd, stream->pos, SEEK_SET);
+        if (ret = -1) {
+            SUBTITLE_LOGE("lseek error!");
+        }
+    }
     return 0;
 }
 
@@ -261,7 +266,7 @@ static int mpeg_run(mpeg_t *mpeg, char read_flag) {
                     //if (mpeg->packet_reserve < mpeg->packet_size) {
                     if (mpeg->packet) free(mpeg->packet);
                     //for coverity
-                    if (mpeg->packet_size < 0 || mpeg->packet_size > INT_MAX) {
+                    if (mpeg->packet_size < 0) {
                         SUBTITLE_LOGE("illegal mpeg->packet_size");
                         mpeg->packet_size = 0;
                         return -1;
@@ -526,6 +531,15 @@ static int vobsub_parse_custom(vobsub_t *vob, const char *line)
 #define dump_data 0
 
 VobSubIndex::VobSubIndex(std::shared_ptr<DataSource> source): TextSubtitle(source) {
+    mDelay = -1;
+    mCustom = -1;
+    mHavePalette = -1;
+    mOrigFrameWidth = 0;
+    mOrigFrameHeight = 0;
+    mOriginX = 0;
+    mOriginY = 0;
+    mForcedSubs = 0;
+    mVobsubId = 0;
     mSubFd = source->getExtraFd();
 
     if (mSubFd <= 0) {
@@ -563,21 +577,21 @@ std::shared_ptr<ExtSubItem> VobSubIndex::decodedItem() {
 
         //SUBTITLE_LOGI(">> %s [%c %c %c %c] %d", line, line[0], line[1], line[2], line[3], strncmp("timestamp:", line, 10));
         if (strncmp("langidx:", line, 8) == 0) {
-            vobsubId = atoi(line + 8);
+            mVobsubId = atoi(line + 8);
             // use the default idx for playing
             if (mIdxSubTrackId == -1) {
-                mSelectedTrackId = vobsubId;
+                mSelectedTrackId = mVobsubId;
             }
         } else if (strncmp("delay:", line, 6) == 0) {
             mDelay = vobsub_parse_delay(line);
         } else if (strncmp("id:", line, 3) == 0) {
             char lang[16]; // todo handle lang
 
-            sscanf(line,"id: %2s, index: %d", lang, &vobsubId);
-            SUBTITLE_LOGI("\n\n\n\n\n\n\n %s  vobsubId=%d\n\n\n\n\n", line, vobsubId);
+            sscanf(line,"id: %2s, index: %d", lang, &mVobsubId);
+            SUBTITLE_LOGI("\n\n\n\n\n\n\n %s  mVobsubId=%d\n\n\n\n\n", line, mVobsubId);
             // No select, select the first we encounter.
             if (mIdxSubTrackId == -1) {
-                mSelectedTrackId = mIdxSubTrackId = vobsubId;
+                mSelectedTrackId = mIdxSubTrackId = mVobsubId;
             }
 
         } else if (strncmp("palette:", line, 8) == 0) {
@@ -597,17 +611,17 @@ std::shared_ptr<ExtSubItem> VobSubIndex::decodedItem() {
             }
             //SUBTITLE_LOGI("%d %d %d %d %llx", hour, min, sec, ms, pos);
 
-            if (vobsubId != mSelectedTrackId) {
-                SUBTITLE_LOGI("cur:%d sel:%d ignore", vobsubId, mSelectedTrackId);
+            if (mVobsubId != mSelectedTrackId) {
+                SUBTITLE_LOGI("cur:%d sel:%d ignore", mVobsubId, mSelectedTrackId);
                 continue;
             }
             std::shared_ptr<ExtSubItem> item = std::shared_ptr<ExtSubItem>(new ExtSubItem());
 
             // TOD: currently, only debug:
-           // if (vobsubId != 0) continue;
+           // if (mVobsubId != 0) continue;
             // TODO: tune delay
             item->start = (hour * 60 * 60 + min * 60 + sec) * 100 + ms/10;
-            item->subId = vobsubId;
+            item->subId = mVobsubId;
             item->filePos = pos;
             // TODO: tune end
 
@@ -665,7 +679,7 @@ std::shared_ptr<AML_SPUVAR> VobSubIndex::popDecodedItem() {
     spu->pos = item->filePos;
     spu->isExtSub = true;
     // TODO: construct render and data for sub-idx
-    //spu->m_delay = item->start + getDuration(spu->pos, vobsubId)/90; // units are 90KHz clock
+    //spu->m_delay = item->start + getDuration(spu->pos, mVobsubId)/90; // units are 90KHz clock
 
     using std::placeholders::_1;
     using std::placeholders::_2;
@@ -785,7 +799,7 @@ unsigned int VobSubIndex::getDuration(int64_t pos, int trackId) {
                 unsigned char *rawsubdata, *subdata_ptr;
                 int sublen, len;
                 sublen = (mpg-> packet[0] << 8) | (mpg->packet[1]);
-                if (sublen < 0 || sublen > INT_MAX) { //for coverity
+                if (sublen < 0) { //for coverity
                     SUBTITLE_LOGE("illegal sublen");
                     break;
                 }
@@ -867,7 +881,7 @@ unsigned char *VobSubIndex::genSubBitmap(AML_SPUVAR *spu, size_t *size) {
                     unsigned char *rawsubdata, *subdata_ptr;
                     int sublen, len;
                     sublen = (mpg-> packet[0] << 8) | (mpg->packet[1]);
-                    if (sublen < 0 || sublen > INT_MAX) {
+                    if (sublen < 0) {
                         SUBTITLE_LOGE("illegal sublen");
                         break;
                     }

@@ -255,8 +255,14 @@ static inline void readColorTable(unsigned char *buf, int size, PgsInfo *pgsInfo
         B = Y + 2.032U
         */
         // When the transparency near white is too low, convert it to an opaque state
+        //pgsInfo->palette[buf[pos]] =
+        //    ((r > 255 ? 255: r) << 24) | ((g > 255 ? 255: g) << 16) | ((b > 255 ? 255: b) << 8) | (((buf[pos + 4] <= 0x0E) && (buf[pos + 4] > 0x00) && (r > 200 &&  g > 200 && b > 200)) ? 0xFF : buf[pos + 4]);
+
+        /* for coverity,  Logically dead code
+         * r, g, b is [0, 255], and never larger than 255*/
         pgsInfo->palette[buf[pos]] =
-            ((r > 255 ? 255: r) << 24) | ((g > 255 ? 255: g) << 16) | ((b > 255 ? 255: b) << 8) | (((buf[pos + 4] <= 0x0E) && (buf[pos + 4] > 0x00) && (r > 200 &&  g > 200 && b > 200)) ? 0xFF : buf[pos + 4]);
+            (r << 24) | (g << 16) | (b << 8) | (((buf[pos + 4] <= 0x0E) && (buf[pos + 4] > 0x00) && (r > 200 &&  g > 200 && b > 200)) ? 0xFF : buf[pos + 4]);
+
     }
 }
 
@@ -561,6 +567,11 @@ int PgsParser::decode(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray, unsigne
             if (readBitmap(curBuf - size, size, pgsInfo)) {
                 SUBTITLE_LOGI("nwpushuai objectId:%d", pgsInfo->objectId);
                 int presentationSegmentObjectId = findObject(pgsInfo->objectId, pgsInfo);
+
+                if (presentationSegmentObjectId = -1) {
+                    SUBTITLE_LOGE("Segment id -1 invalid!");
+                    break;
+                }
 
                 if (mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x < 0 || mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x > mPgsEpgs->pgsInfo->width) {
                     SUBTITLE_LOGI("fail x nwpushuai --OBJECT_SEGMENT-- y:%d height:%d imageHeight:%d \n", mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x, mPgsEpgs->pgsInfo->width, mPgsEpgs->pgsInfo->imageWidth);

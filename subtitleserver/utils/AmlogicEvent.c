@@ -230,10 +230,11 @@ int AmlogicEventSignal(long dev_no, int event_type, void *param)
 int AmlogicEventInit()
 {
     int i;
-    pthread_mutexattr_init(&attr);
+    //replaced by rwlock
+    /*pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
     pthread_mutex_init(&lock, &attr);
-    pthread_mutexattr_destroy(&attr);
+    pthread_mutexattr_destroy(&attr);*/
 
     for (i = 0; i < AM_EVENT_BUCKET_COUNT; i++) events[i] = NULL;
     return AM_SUCCESS;
@@ -244,8 +245,9 @@ int AmlogicEventDestroy()
 {
     AM_Event_t *evt;
     int i;
-    pthread_mutex_destroy(&lock);
+    //pthread_mutex_destroy(&lock);
 
+    pthread_rwlock_rdlock(&rwlock);
     for ( i = 0; i < AM_EVENT_BUCKET_COUNT; i++ )
     {
         AM_Event_t *tmp, *head = events[i];
@@ -256,5 +258,6 @@ int AmlogicEventDestroy()
             free(tmp);
         }
     }
+    pthread_rwlock_unlock(&rwlock);
     return AM_SUCCESS;
 }

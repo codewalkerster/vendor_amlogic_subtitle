@@ -119,15 +119,15 @@ public:
     }
 
     bool startParser(ParserEventNotifier *notify, ParserSubdataNotifier *dataNofity) {
-        mState = SUB_INIT;
-        mNotifier = notify;
-        mDataNotifier = dataNofity;
-        if (this) {
-            mThread = std::thread(&Parser::_parserEntry, this);
-        } else {
+        if (!this) {
             SUBTITLE_LOGE("This is Null, startParser Error!");
             return false;
         }
+
+        mState = SUB_INIT;
+        mNotifier = notify;
+        mDataNotifier = dataNofity;
+        mThread = std::thread(&Parser::_parserEntry, this);
         return true;
     }
 

@@ -142,7 +142,7 @@ private:
     unsigned int mOriginY;
     unsigned int mForcedSubs;
 
-    int vobsubId;
+    int mVobsubId;
 
     unsigned char *genSubBitmap(AML_SPUVAR *spu, size_t *size);
     int do_vob_sub_cmd(unsigned char *packet);

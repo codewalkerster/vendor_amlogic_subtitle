@@ -536,8 +536,18 @@ int SmpteTtmlParser::SmpteTtmlDecodeFrame(char *srcData, int srcLen, int64_t bas
 
     tinyxml2::XMLElement *div = body->FirstChildElement("div");
     if (div == nullptr) div = body->FirstChildElement("tt:div");
+    if (div == nullptr) {
+        SUBTITLE_LOGE("%s Error. no dev found!", __FUNCTION__);
+        doc.Clear();
+        return -1;
+    }
     tinyxml2::XMLElement *divDivParagraph = div->FirstChildElement("div");
     if (divDivParagraph == nullptr) divDivParagraph = div->FirstChildElement("tt:div");
+    if (divDivParagraph == nullptr) {
+        SUBTITLE_LOGE("%s Error. no divDivParagraph found!", __FUNCTION__);
+        doc.Clear();
+        return -1;
+    }
 
     while (metadataSmpteImageParagraph != nullptr && layoutRegionParagraph != nullptr && divDivParagraph != nullptr) {
         std::shared_ptr<AML_SPUVAR> spu(new AML_SPUVAR());
@@ -562,6 +572,8 @@ int SmpteTtmlParser::SmpteTtmlDecodeFrame(char *srcData, int srcLen, int64_t bas
         // Checks if the input is a null pointer or an empty string
         if (imageData == nullptr || *imageData == '\0') {
             SUBTITLE_LOGE("imageData is Null!\n");
+            doc.Clear();
+            return -1;
         }
 
         // Find the position of the first non-newline character
@@ -782,7 +794,7 @@ int SmpteTtmlParser::hwDemuxParse() {
         }
 
         if (needSkipData) {
-            if (packetLen < 0 || packetLen > INT_MAX) {
+            if (packetLen < 0) {
                 SUBTITLE_LOGE("illegal packetLen!!!\n");
                 return false;
             }

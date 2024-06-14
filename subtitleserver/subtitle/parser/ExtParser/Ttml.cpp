@@ -102,8 +102,10 @@ void TTML::parseXml() {
         SUBTITLE_LOGI("parseXml parag Text:%s\n", parag->GetText());
         if (parag->GetText() == nullptr) {
             spanarag = parag->FirstChildElement("tt:span");
-            SUBTITLE_LOGI("parseXml spanarag Text:%s\n", spanarag->GetText());
-            item->lines.push_back(std::string(spanarag->GetText()));
+            if (spanarag->GetText() != nullptr) {
+                SUBTITLE_LOGI("parseXml spanarag Text:%s\n", spanarag->GetText());
+                item->lines.push_back(std::string(spanarag->GetText()));
+            }
         } else {
             item->lines.push_back(std::string(parag->GetText()));
         }

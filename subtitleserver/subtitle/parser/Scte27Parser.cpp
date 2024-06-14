@@ -240,7 +240,6 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
             simple_bitmap->frame_bg_style.frame_top_v > simple_bitmap->top_v ||
             simple_bitmap->frame_bg_style.frame_bottom_h < simple_bitmap->bottom_h ||
             simple_bitmap->frame_bg_style.frame_bottom_v < simple_bitmap->bottom_v) {
-            free (simple_bitmap);
             SUBTITLE_LOGE("%s top_h:%d top_v:%d bottom_h:%d bottom_v:%d  frame_top_h:%d frame_top_v:%d frame_bottom_h:%d frame_bottom_v:%d",
                 __FUNCTION__,
                 simple_bitmap->top_h,
@@ -251,6 +250,7 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
                 simple_bitmap->frame_bg_style.frame_top_v,
                 simple_bitmap->frame_bg_style.frame_bottom_h,
                 simple_bitmap->frame_bg_style.frame_bottom_v);
+            free (simple_bitmap);
             return;
         }
         buffer = &buffer[8];
@@ -294,6 +294,7 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
         free (simple_bitmap);
         return;
     }
+    memset(bitmap, 0, bitmap_size);
     simple_bitmap->sub_bmp = bitmap;
 
     int on_bits, off_bits, row_length;
@@ -412,6 +413,14 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
 
     uint8_t *bmp, *target_bmp_start, *cursor;
     bmp = (uint8_t *) malloc(bitmap_width*bitmap_height*4);
+    if (!bmp) {
+        SUBTITLE_LOGE("%s malloc bmp failed!\n",__FUNCTION__);
+        free (bitmap);
+        free (simple_bitmap);
+        return;
+    }
+    memset(bmp, 0, bitmap_width*bitmap_height*4);
+
     target_bmp_start = bmp + simple_bitmap->top_v * pitch + simple_bitmap->top_h * 4;
 
     for (i=0; i<bitmap_v; i++) {
@@ -512,7 +521,13 @@ int Scte27Parser::decodeMessageBodySubtitle(std::shared_ptr<AML_SPUVAR> spu, cha
     int subtitle_type       = (buf[8] >> 4) & 0xF;
     int vlc_subtitle_type   = buf[8] >> 4;
     int block_length        = (buf[10] << 8) | buf[11];
-    int64_t reveal_pts      = (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7];
+    /*for coverity: SWPL-143128 (CID 286925 : sign_extension)
+     *If (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7] is greater than 0x7FFFFFFF,
+     *the upper bits of the result will all be 1 if change to int64_t directly.
+     *so change to uint64_t first
+     */
+    uint64_t u_reveal_pts = (uint64_t)((buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7]);
+    int64_t reveal_pts = static_cast<int64_t>(u_reveal_pts);
     reveal_pts = (reveal_pts < 0) ? -reveal_pts : reveal_pts;
     int display_duration    = ((buf[8] & 0x07) << 8) | buf[9];
 

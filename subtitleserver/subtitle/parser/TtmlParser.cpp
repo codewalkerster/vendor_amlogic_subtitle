@@ -327,7 +327,10 @@ int TtmlParser::TtmlDecodeFrame(std::shared_ptr<AML_SPUVAR> spu, char *srcData, 
             }
             SUBTITLE_LOGI("%s tempString:%s", __FUNCTION__, tempString.c_str());
             divPSpan = divPSpan->NextSiblingElement("tt:span");
-            childNodeBodyDivP = childNodeBodyDivP->NextSibling();
+
+            if (childNodeBodyDivP) {
+                childNodeBodyDivP = childNodeBodyDivP->NextSibling();
+            }
         }
 
         SUBTITLE_LOGI("%s Region: xml:id=%s tts:extent=%s tts:origin=%s tts:padding=%s tts:displayAlign=%s tts:writingMode=%s Div: xml:id=%s style=%s  ttp: begin=%s end=%s style=%s region=%s xml:id=%s  text=%s", __FUNCTION__,
@@ -450,7 +453,7 @@ int TtmlParser::hwDemuxParse(std::shared_ptr<AML_SPUVAR> spu) {
         }
 
         if (needSkipData) {
-            if (packetLen < 0 || packetLen > INT_MAX) {
+            if (packetLen < 0) {
                 SUBTITLE_LOGE("illegal packetLen!!!\n");
                 return false;
             }

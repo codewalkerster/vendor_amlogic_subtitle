@@ -67,8 +67,6 @@ bool ExternalDataSource::notifyInfoChange_l(int type) {
     for (auto it = mInfoListeners.begin(); it != mInfoListeners.end(); it++) {
         auto wk_listener = (*it);
         if (auto lstn = wk_listener.lock()) {
-            if (lstn == nullptr) return false;
-
             switch (type) {
                 case eTypeSubtitleRenderTime:
                     lstn->onRenderTimeChanged(mRenderTimeUs);

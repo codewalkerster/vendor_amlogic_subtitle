@@ -255,17 +255,27 @@ void Subtitle::run() {
              * when specifying the parser type subsequently
              */
             mParser->stopParser();
-            mPresentation->stopPresent();
+            if (mPresentation != nullptr) {
+                mPresentation->stopPresent();
+            }
             mParser = nullptr;
             mSubPrams->subType = TYPE_SUBTITLE_EXTERNAL;// if mFd > 0 is Ext sub
             mSubPrams->idxSubTrackId = mIdxSubTrack;
             mParser = ParserFactory::create(mSubPrams, mDataSource);
+            /*
+             * This is correct, create parser and judge if null,
+             * ignore coverity check_after_deref
+             */
+            /* coverity[check_after_deref:SUPPRESS] */
             if (mParser == nullptr) {
                 SUBTITLE_LOGE("Parser creat failed, break!");
                 break;
             }
             mParser->startParser(mParserNotifier, mPresentation.get());
-            mPresentation->startPresent(mParser);
+
+            if (mPresentation != nullptr) {
+                mPresentation->startPresent(mParser);
+            }
             mPendingAction = -1; // No need handle
         }
 

@@ -2032,11 +2032,12 @@ int TeletextParser::gotoDefaultDtvSubtitleLocked(int dtvSubtitlepageId) {
 
 int TeletextParser::gotoSubPageLocked(int subPageNum)
 {
-    SUBTITLE_LOGI("%s, subPageNum:%d gotoSubPageDigitFlag:%d\n", __FUNCTION__, subPageNum, mContext->gotoSubPageDigitFlag);
-
     if (!mContext) {
-        return -1;
+        SUBTITLE_LOGE("%s, ctx is null\n", __FUNCTION__);
+        return TT2_FAILURE;
     }
+
+    SUBTITLE_LOGI("%s, subPageNum:%d gotoSubPageDigitFlag:%d\n", __FUNCTION__, subPageNum, mContext->gotoSubPageDigitFlag);
 
 
     if (subPageNum < TELETEXT_MIN_SUBPAGE_NUMBER || subPageNum > TELETEXT_MAX_SUBPAGE_NUMBER) {
@@ -2064,11 +2065,12 @@ int TeletextParser::gotoSubPageLocked(int subPageNum)
 
 int TeletextParser::gotoPageLocked(int pageNum, int subPageNum)
 {
-    SUBTITLE_LOGI("%s, pgno:%d, subPageNum:%d\n", __FUNCTION__, pageNum, subPageNum);
-
     if (!mContext) {
-        return -1;
+        SUBTITLE_LOGE("%s, ctx is null\n", __FUNCTION__);
+        return TT2_FAILURE;
     }
+
+    SUBTITLE_LOGI("%s, pgno:%d, subPageNum:%d\n", __FUNCTION__, pageNum, subPageNum);
 
     if (pageNum < 100 || pageNum > 899) {
         return -1;
@@ -2401,7 +2403,7 @@ bool TeletextParser::handleControl() {
 int TeletextParser::convertPageDecimal2Hex(int magazine, int pageNo) {
     SUBTITLE_LOGI("%s, magazine:0x%x, pageNo:0x%x\n", __FUNCTION__, magazine, pageNo);
     int pageNum;
-    if (magazine < TELETEXT_MIN_MAGAZINE_NUMBER ||  magazine > TELETEXT_MAX_MAGAZINE_NUMBER || vbi_bcd2dec(pageNo) < TELETEXT_MIN_PAGENO_NUMBER || vbi_bcd2dec(pageNo) > TELETEXT_MAX_PAGENO_NUMBER ) {
+    if (magazine < TELETEXT_MIN_MAGAZINE_NUMBER ||  magazine > TELETEXT_MAX_MAGAZINE_NUMBER || vbi_bcd2dec(pageNo) > TELETEXT_MAX_PAGENO_NUMBER ) {
         SUBTITLE_LOGE("%s, Page number parameter input error, corrected to default pageNo 100\n", __FUNCTION__);
         pageNum = 100;
     } else if (magazine == TELETEXT_MIN_MAGAZINE_NUMBER) {
@@ -2471,6 +2473,7 @@ int TeletextParser::initContext() {
     mContext->searchDir = 1;
     mContext->gotoPage = 100;
     mContext->pageNum = -1;
+    mContext->subtitlePageId = -1;
     //1:transparent 0:black default transparent
     mContext->transparentBackground = 0;
     //display backGround, page not full Green, need add prop define non-page display backGround
@@ -2848,6 +2851,11 @@ int TeletextParser::hwDemuxParse(std::shared_ptr<AML_SPUVAR> spu, char *psrc, co
     int packageLen = 0, pesHeaderLen = 0;
     bool needSkipData = false;
     int ret = 0;
+
+    if (!psrc) {
+        SUBTITLE_LOGE("dvb packet is null!\n\n");
+        return -1;
+    }
 
     if (psrc[0] || psrc[1]) {
         packageLen = (psrc[0] << 8) | psrc[1];

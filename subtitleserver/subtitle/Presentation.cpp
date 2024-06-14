@@ -559,7 +559,16 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
             timestamp = mPresent->mStartTimeModifier + mPresent->mCurrentPresentRelativeTime;
             if (mPresent->mEmittedShowingSpu.size() > 0) {
                 spu = mPresent->mEmittedShowingSpu.front();
-                SUBTITLE_LOGI("spu->isExtSub:%d, timestamp:%lld mStartTimeModifier=%lld mCurrentPresentRelativeTime=%lld ItemPts=%lld(%lld) m_delay/DVB_TIME_MULTI:%lld",spu->isExtSub, ns2ms(timestamp),ns2ms(mPresent->mStartTimeModifier),ns2ms(mPresent->mCurrentPresentRelativeTime),spu->pts, spu->pts/DVB_TIME_MULTI, spu->m_delay/DVB_TIME_MULTI);
+
+                if (spu != nullptr) {
+                    SUBTITLE_LOGI("spu->isExtSub:%d, timestamp:%lld mStartTimeModifier=%lld \
+                                   mCurrentPresentRelativeTime=%lld                         \
+                                   ItemPts=%lld(%lld) m_delay/DVB_TIME_MULTI:%lld",
+                                   spu->isExtSub, ns2ms(timestamp),ns2ms(mPresent->mStartTimeModifier),
+                                   ns2ms(mPresent->mCurrentPresentRelativeTime),
+                                   spu->pts, spu->pts/DVB_TIME_MULTI, spu->m_delay/DVB_TIME_MULTI);
+                }
+
 
                 //in case seek done, then throw out-of-date subtitle
                 while (spu != nullptr && spu->isExtSub && spu->m_delay > 0 && (ns2ms(timestamp) >= spu->m_delay/DVB_TIME_MULTI)) {

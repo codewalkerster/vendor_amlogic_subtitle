@@ -107,12 +107,13 @@ bool SubtitleService::startSubtitle(std::vector<int> fds, int trackId, SubtitleI
             hasExtraFd ? fds[1] : -1,
             type);
 
-    if (mDumpMaps & (1<<SUBTITLE_DUMP_SOURCE)) {
-        datasource->enableSourceDump(true);
-    }
     if (nullptr == datasource) {
         SUBTITLE_LOGI("Error, %s data Source is null!", __func__);
         return false;
+    }
+
+    if (mDumpMaps & (1<<SUBTITLE_DUMP_SOURCE)) {
+        datasource->enableSourceDump(true);
     }
 
     SUBTITLE_LOGI("%s  subType:%d", __func__,mSubParam.subType);

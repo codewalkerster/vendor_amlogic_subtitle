@@ -82,10 +82,13 @@ static inline int userdata_get_dev(int dev_no, UserdataDeviceType **dev) {
 /** Obtain the device structure according to the device number and check whether the device has been opened*/
 static inline int userdata_get_opened_dev(int dev_no, UserdataDeviceType **dev) {
     AM_TRY(userdata_get_dev(dev_no, dev));
+    pthread_mutex_lock(&am_gAdpLock);
     if (!(*dev)->open_cnt) {
+        pthread_mutex_unlock(&am_gAdpLock);
         SUBTITLE_LOGE("userdata device %d has not been opened", dev_no);
         return USERDATA_ERROR_INVALID_DEV_NO;
     }
+    pthread_mutex_unlock(&am_gAdpLock);
     return AM_SUCCESS;
 }
 
@@ -238,7 +241,9 @@ static int userdata_package_poll(UserdataDeviceType *dev, int timeout) {
     // not opened or deinitilized.
     // If client call userdata close before stop decode, may has problem.
     // Add more protection here.
+    pthread_mutex_lock(&am_gAdpLock);
     if (dev->open_cnt <= 0) {
+        pthread_mutex_unlock(&am_gAdpLock);
         return AM_FAILURE;
     }
 
@@ -257,6 +262,7 @@ static int userdata_package_poll(UserdataDeviceType *dev, int timeout) {
             }
         }
     }
+    pthread_mutex_unlock(&am_gAdpLock);
     return ret;
 }
 

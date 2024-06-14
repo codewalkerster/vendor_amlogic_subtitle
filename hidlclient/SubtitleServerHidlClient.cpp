@@ -77,6 +77,14 @@ SubtitleServerHidlClient::SubtitleServerHidlClient()
     // TODO: ?? multi-instance??
 
     getSubtitleService();
+
+    gsubtitleCtx.ptscb = NULL;
+    gsubtitleCtx.tvType = 0;
+    gsubtitleCtx.pid  = 0;
+    gsubtitleCtx.vfmt  = 0;
+    gsubtitleCtx.channelId  = 0;
+    gsubtitleCtx.ancPageId  = 0;
+    gsubtitleCtx.ancPageId  = 0;
 }
 
 SubtitleServerHidlClient::~SubtitleServerHidlClient()
@@ -190,7 +198,7 @@ void SubtitleServerHidlClient::subtitleOpen(const std::string& path, getPtsCb cb
         mRetry = RETRY_MAX;
         mThreadStop = false;
     }
-   gsubtitleCtx.ptscb = cb;
+    gsubtitleCtx.ptscb = cb;
     //ctc_mp = static_cast<CTsPlayer *>(pthis);
     SUBTITLE_LOGE("subtitleOpen pos2:%d\n", gsubtitleCtx.ptscb());
     return;

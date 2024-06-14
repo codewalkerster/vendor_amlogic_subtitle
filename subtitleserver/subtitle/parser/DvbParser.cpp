@@ -1729,7 +1729,7 @@ int DvbParser::hwDemuxParse() {
         }
 
         if (needSkipData) {
-            if (packetLen < 0 || packetLen > INT_MAX) {
+            if (packetLen < 0) {
                 SUBTITLE_LOGE("illegal packetLen!!!\n");
                 return false;
             }

@@ -119,10 +119,13 @@ static inline int dmx_get_dev(int dev_no, DemuxDeviceType **dev) {
 static inline int dmx_get_opened_dev(int dev_no, DemuxDeviceType **dev) {
     AM_TRY(dmx_get_dev(dev_no, dev));
 
+    pthread_mutex_lock(&am_gAdpLock);
     if ((*dev)->open_count <= 0) {
         SUBTITLE_LOGI("demux device %d has not been opened", dev_no);
+        pthread_mutex_unlock(&am_gAdpLock);
         return DEMUX_ERROR_INVALID_DEV_NO;
     }
+    pthread_mutex_unlock(&am_gAdpLock);
     return AM_SUCCESS;
 }
 

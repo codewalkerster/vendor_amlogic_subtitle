@@ -433,7 +433,7 @@ int AribB24Parser::hwDemuxParse(std::shared_ptr<AML_SPUVAR> spu) {
         }
 
         if (needSkipData) {
-            if (packetLen < 0 || packetLen > INT_MAX) {
+            if (packetLen < 0) {
                 SUBTITLE_LOGE("illegal packetLen!!!\n");
                 return false;
             }

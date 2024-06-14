@@ -253,6 +253,7 @@ struct SubtitleParamType {
 
     SubtitleParamType() : playerId(-1), mediaId(-1), idxSubTrackId(0) {
         subType = TYPE_SUBTITLE_INVALID;
+        dtvSubType = DTV_SUB_INVALID;
         memset(&closedCaptionParam, 0, sizeof(closedCaptionParam));
     }
 
