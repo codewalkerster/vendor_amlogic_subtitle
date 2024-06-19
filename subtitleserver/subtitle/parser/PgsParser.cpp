@@ -568,7 +568,7 @@ int PgsParser::decode(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray, unsigne
                 SUBTITLE_LOGI("nwpushuai objectId:%d", pgsInfo->objectId);
                 int presentationSegmentObjectId = findObject(pgsInfo->objectId, pgsInfo);
 
-                if (presentationSegmentObjectId = -1) {
+                if (presentationSegmentObjectId == -1) {
                     SUBTITLE_LOGE("Segment id -1 invalid!");
                     break;
                 }

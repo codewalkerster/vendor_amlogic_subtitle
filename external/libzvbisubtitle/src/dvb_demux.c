@@ -1055,7 +1055,6 @@ extract_data_units		(struct frame *		f,
 				discard_raw (f);
 
 				return VBI_ERR_DU_RAW_DATA_INCOMPLETE;
-				goto failed;
 			}
 
 			if (unlikely (data_unit_length < 1 + 2)) {

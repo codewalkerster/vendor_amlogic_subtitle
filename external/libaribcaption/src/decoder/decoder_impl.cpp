@@ -1272,7 +1272,8 @@ bool DecoderImpl::HandleGLGR(const uint8_t* data, size_t remain_bytes, size_t* b
             // If [request replace MSZ fullwidth Japanese] && [under MSZ mode]
             if (replace_msz_fullwidth_ja_ && char_horizontal_scale_ * 2 == char_vertical_scale_) {
                 // Replace symbols used in Japanese (CJK) paragraph, etc. into halfwidth characters
-                if (ku < 2) {
+                int length = sizeof(kKanjiSymbolsTable_Halfwidth)/sizeof(kKanjiSymbolsTable_Halfwidth[0]);
+                if ((ku < 2) && (index < length)) {
                     ucs4 = kKanjiSymbolsTable_Halfwidth[index];
                 }
             }

@@ -339,11 +339,11 @@ bool SubtitleServerClient::open(const char *path, int ioType) {
 
 
 bool SubtitleServerClient::close() {
-    SUBTITLE_LOGI("close session:0x%x", mSessionId);
     if (this == nullptr) {
         SUBTITLE_LOGE("maybe not exist!");
         return false;
     }
+    SUBTITLE_LOGI("close session:0x%x", mSessionId);
     Mutex::Autolock _l(mLock);
     if (mRemote == nullptr && !hasInit) {
         initRemoteLocked();
@@ -532,7 +532,7 @@ bool SubtitleServerClient::setSecureLevel(int flag) {
 }
 
 bool SubtitleServerClient::setClosedCaptionLang(const char *lang) {
-    SUBTITLE_LOGI("select session:0x%x lang:%d", mSessionId, lang);
+    SUBTITLE_LOGI("select session:0x%x lang:%s", mSessionId, lang);
     Mutex::Autolock _l(mLock);
     if (mRemote == nullptr && !hasInit) {
         initRemoteLocked();
@@ -549,7 +549,7 @@ bool SubtitleServerClient::setClosedCaptionLang(const char *lang) {
 
 bool SubtitleServerClient::selectCcChannel(int ch, const char *lang) {
     Mutex::Autolock _l(mLock);
-    SUBTITLE_LOGI("select session:0x%x  channel:%d lang:%d", mSessionId, ch, lang);
+    SUBTITLE_LOGI("select session:0x%x  channel:%d lang:%s", mSessionId, ch, lang);
     if (mRemote == nullptr && !hasInit) {
         initRemoteLocked();
     }

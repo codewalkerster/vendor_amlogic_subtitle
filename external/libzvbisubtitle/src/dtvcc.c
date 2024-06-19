@@ -3715,9 +3715,10 @@ dtvcc_ignore_invalid_data (unsigned int c)
 		} else {
 		if (valid_low_data) {
 						valid_data = c;
-				} else {
+				} /*else {
 						valid_data = 0;
-				}
+				}*/
+				//for coverity, valid_low_data must equal to 1, and this dead code
 		}
 		ALOGE("debug-cc cc data:%x, invalid_data %x", c, valid_data);
 		return valid_data;
@@ -4056,8 +4057,13 @@ dtvcc_get_se_len (unsigned char *p, int left)
 
 	c = p[0];
 
-	if ((c == 0x8d) && (c == 0x8e))
-		return 1;
+	/* impossible_and
+	 * The and condition c == 141 && c == 142
+	 * can never be true because c cannot be equal to two different values
+	 * for coverity
+	 */
+	//if ((c == 0x8d) && (c == 0x8e))
+	//	return 1;
 
 	if (0 != (c & 0x60))
 		return 1;

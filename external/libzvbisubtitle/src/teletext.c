@@ -169,8 +169,11 @@ static inline void flof_subpage_bar(vbi_decoder *vbi, vbi_page *pg, cache_page *
 			}
 		if (vtp->data.lop.link[i].subno < 10 ) {
 			n = vtp->data.lop.link[i].subno + '0';
-			if (n > '9')
-				n += 'A' - '9';
+			/* for coverity dead_error_line
+			 *n at most 9 + '0' = 57, never more than 57 ('9')
+			 */
+			/*if (n > '9')
+				n += 'A' - '9';*/
 			bc.unicode = n;
 			ac.unicode = 0x0030;
 		}else if(vtp->data.lop.link[i].subno >= 256){

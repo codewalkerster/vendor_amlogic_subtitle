@@ -410,13 +410,13 @@ draw_char(int canvas_type, uint8_t *canvas, int rowstride,
 	src = font + (x >> 3);
 
 	switch (size) {
-		case VBI_DOUBLE_HEIGHT2:
+		case VBI_DOUBLE_HEIGHT2: /* FALLTHROUGH */
 		case VBI_DOUBLE_SIZE2:
 			src += cpl * cw / 8 * ch / 2;
 			underline >>= ch / 2;
 
-		case VBI_DOUBLE_HEIGHT:
-		case VBI_DOUBLE_SIZE:
+		case VBI_DOUBLE_HEIGHT: /* FALLTHROUGH */
+		case VBI_DOUBLE_SIZE:   /* FALLTHROUGH */
 			ch >>= 1;
 
 		default:
@@ -450,7 +450,7 @@ draw_char(int canvas_type, uint8_t *canvas, int rowstride,
 
 				break;
 
-			case VBI_DOUBLE_HEIGHT:
+			case VBI_DOUBLE_HEIGHT: /* FALLTHROUGH */
 			case VBI_DOUBLE_HEIGHT2:
 				for (x = 0; x < cw; bits >>= 1, x++) {
 					unsigned int col = peek(pen, bits & 1);
@@ -475,7 +475,7 @@ draw_char(int canvas_type, uint8_t *canvas, int rowstride,
 
 				break;
 
-			case VBI_DOUBLE_SIZE:
+			case VBI_DOUBLE_SIZE: /* FALLTHROUGH */
 			case VBI_DOUBLE_SIZE2:
 				for (x = 0; x < cw * 2; bits >>= 1, x += 2) {
 					unsigned int col = peek(pen, bits & 1);
@@ -545,7 +545,7 @@ draw_drcs(int canvas_type, uint8_t *canvas, unsigned int rowstride,
 
 		case VBI_DOUBLE_HEIGHT2:
 			src += 30;
-
+		/* FALLTHROUGH */
 		case VBI_DOUBLE_HEIGHT:
 			for (y = 0; y < TCH / 2; canvas += rowstride * 2, y++)
 				for (x = 0; x < TCW; src++, x += 2) {
