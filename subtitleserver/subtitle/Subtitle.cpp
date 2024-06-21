@@ -89,12 +89,13 @@ Subtitle::~Subtitle() {
     //android::CallStack(LOG_TAG);
     mExitRequested = true;
     mCv.notify_all();
-    if (mThread != nullptr) {
-        mThread->join();
-    }
 
     if (mDataSource != nullptr) {
         mDataSource->stop();
+    }
+
+    if (mThread != nullptr) {
+        mThread->join();
     }
 
     if (mParser != nullptr) {
