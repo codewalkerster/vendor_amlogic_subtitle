@@ -51,11 +51,13 @@ public:
     //       Need impl later.
     virtual bool showSubtitleItem(std::shared_ptr<AML_SPUVAR> spu,int type);
     virtual bool hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu);
+    virtual bool hideObjectIdSubtitleItem(int type, int objectId);
     virtual void resetSubtitleItem();
     virtual void removeSubtitleItem(std::shared_ptr<AML_SPUVAR> spu);
 
 private:
     bool postSubtitleData();
+    bool postObjectIdSubtitleData(int objectId);
 
     std::shared_ptr<Display> mDisplay;
 

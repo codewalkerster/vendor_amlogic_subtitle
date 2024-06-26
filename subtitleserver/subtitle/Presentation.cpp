@@ -372,6 +372,7 @@ Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSu
     mRequestThreadExit = false;
     mPresent = present;
     mIsExtSub = isExtSub;
+    mCurrentMaxObjectId = 0;
 
     // hold a reference for RefBase object
     // we move the inc here, before the thread started, to avoid multi-thread problem
@@ -382,6 +383,7 @@ Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSu
 Presentation::MessageProcess::~MessageProcess() {
     mLastShowingSpu = nullptr;
     mPresent = nullptr;
+    mCurrentMaxObjectId = 0;
 }
 
 void Presentation::MessageProcess::join() {
@@ -641,19 +643,43 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                                 mPresent->mEmittedShowingSpu.pop_front();
                             }
                         }
-                        SUBTITLE_LOGI("Show SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) spu->objectSegmentId:%d",
+                        SUBTITLE_LOGI("Show SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) spu->objectSegmentId:%d mPresent->mEmittedShowingSpu.size():%d, mCurrentMaxObjectId:%d",
                                 ns2ms(mPresent->mCurrentPresentRelativeTime),
                                 ns2ms(mPresent->mStartTimeModifier),
                                 spu->pts, spu->pts/DVB_TIME_MULTI,
                                 spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
                                 spu->spu_data, spu->spu_data,
-                                spu->objectSegmentId);
+                                spu->objectSegmentId,
+                                mPresent->mEmittedShowingSpu.size(),
+                                mCurrentMaxObjectId);
+                        if (mCurrentMaxObjectId < spu->objectSegmentId) mCurrentMaxObjectId = spu->objectSegmentId;
                         if (spu->spu_data == nullptr) {
                              mPresent->mRender->hideSubtitleItem(spu);
                         } else {
                              mPresent->mRender->showSubtitleItem(spu, mPresent->mParser->getParseType());
                         }
 
+                        if (TYPE_SUBTITLE_PGS == spu->subtitle_type && mCurrentMaxObjectId > 0 && mCurrentMaxObjectId > spu->objectSegmentId) {
+                                SUBTITLE_LOGI("Show SPU data:%p(%p) spu->objectSegmentId:%d mPresent->mEmittedShowingSpu.size():%d mCurrentMaxObjectId:%d",
+                                spu->spu_data, spu->spu_data,
+                                spu->objectSegmentId,
+                                mPresent->mEmittedShowingSpu.size(),
+                                mCurrentMaxObjectId);
+                            if (mPresent->mEmittedShowingSpu.size() <= 0) {
+                                for (int i=0; i<=mCurrentMaxObjectId; i++) {
+                                    mPresent->mRender->hideObjectIdSubtitleItem(mPresent->mParser->getParseType(), i);
+                                }
+                                mCurrentMaxObjectId = 0;
+                            } else {
+                                std::shared_ptr<AML_SPUVAR> spuTemp;
+                                spuTemp = mPresent->mEmittedShowingSpu.front();
+                                SUBTITLE_LOGI("Show SPU hideObjectIdSubtitleItem mCurrentMaxObjectId:%d spu->objectSegmentId: %d spuTemp->objectSegmentId:%d", mCurrentMaxObjectId, spu->objectSegmentId, spuTemp->objectSegmentId);
+                                for (int i=0; i < mCurrentMaxObjectId-spuTemp->objectSegmentId; i++) {
+                                    mPresent->mRender->hideObjectIdSubtitleItem(mPresent->mParser->getParseType(), mCurrentMaxObjectId - i);
+                                }
+                                mCurrentMaxObjectId = mCurrentMaxObjectId - spuTemp->objectSegmentId;
+                            }
+                        }
                         // fix fadding time, if not valid.
                         if (spu->isImmediatePresent) {
                             // immediatePresent no pts, this may affect the fading calculate.
@@ -700,7 +726,7 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                     uint64_t ahead_delay_tor = ((spu->isExtSub)?5:100)*1000*1000*1000LL;
                     if ((delayed <= timestamp) && (delayed*5 > timestamp)) {
                         mPresent->mEmittedFaddingSpu.pop_front();
-                        SUBTITLE_LOGI("1 fade SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p), isKeepShowing:%d, isImmediatePresent:%d, isTtxSubtitle:%d",
+                        SUBTITLE_LOGI("1 fade SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p), isKeepShowing:%d, isImmediatePresent:%d, isTtxSubtitle:%d objectSegmentId:%d",
                                 ns2ms(mPresent->mCurrentPresentRelativeTime),
                                 ns2ms(mPresent->mStartTimeModifier),
                                 spu->pts, spu->pts/DVB_TIME_MULTI,
@@ -708,24 +734,34 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                                 spu->spu_data, spu->spu_data,
                                 spu->isKeepShowing,
                                 spu->isImmediatePresent,
-                                spu->isTtxSubtitle);
+                                spu->isTtxSubtitle,
+                                spu->objectSegmentId);
 
                         if (spu->isKeepShowing == false) {
-                            mPresent->mRender->hideSubtitleItem(spu);
+                            if (TYPE_SUBTITLE_PGS == spu->subtitle_type) {
+                                for (int i=0; i<=mCurrentMaxObjectId; i++) {
+                                    spu->objectSegmentId = i;
+                                    mPresent->mRender->hideSubtitleItem(spu);
+                                }
+                                mCurrentMaxObjectId = 0;
+                            } else {
+                                mPresent->mRender->hideSubtitleItem(spu);
+                            }
                         } else {
                             mPresent->mRender->removeSubtitleItem(spu);
                         }
-                   } else if  ((timestamp != 0) && ((delayed - timestamp) > ahead_delay_tor)) { //when the video gets to begin,to get rid of the subtitle data to avoid the memory leak
+                   } else if  ((timestamp != 0) && ((delayed - timestamp) > ahead_delay_tor) && TYPE_SUBTITLE_PGS != spu->subtitle_type) { //when the video gets to begin,to get rid of the subtitle data to avoid the memory leak
                         //because when pull out the cable , the video pts became zero. And the timestamp became zero.
                         //And then it would clear the subtitle data queue which may be used by the dtvkit.It may cause crash as the "bad file description".
                         //so add the "(timestamp != 0)"  condition check.
                         mPresent->mEmittedFaddingSpu.pop_front();
-                        SUBTITLE_LOGI("2 fade SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p)",
+                        SUBTITLE_LOGI("2 fade SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) timestamp:%lld delayed:%lld ahead_delay_tor:%lld",
                                 ns2ms(mPresent->mCurrentPresentRelativeTime),
                                 ns2ms(mPresent->mStartTimeModifier),
                                 spu->pts, spu->pts/DVB_TIME_MULTI,
                                 spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
-                                spu->spu_data, spu->spu_data);
+                                spu->spu_data, spu->spu_data,
+                                timestamp, delayed, ahead_delay_tor);
                         if (spu->isKeepShowing == false) {
                             mPresent->mRender->hideSubtitleItem(spu);
                         } else {

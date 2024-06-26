@@ -617,14 +617,14 @@ int PgsParser::decode(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray, unsigne
                     pgsInfo->rleBuf = NULL;
                 }
             }
-            if (mPgsEpgs->pgsInfo->objectCount < MAX_OBJECT_REFS) {
+            /*if (mPgsEpgs->pgsInfo->objectCount < MAX_OBJECT_REFS) {
                 for (int i= MAX_OBJECT_REFS-1; i>= mPgsEpgs->pgsInfo->objectCount ; i--) {
                     SUBTITLE_LOGI("MAX_OBJECT_REFS objectSegmentId:%d\n", i);
                     spuArray[i]->objectSegmentId = i;
                     spuArray[i]->spu_data = NULL;
                     addDecodedItem(std::shared_ptr<AML_SPUVAR>(spuArray[i]));
                 }
-            }
+            }*/
             break;
         case DISPLAY_SEGMENT:      //trailer
             SUBTITLE_LOGI("enter type DISPLAY_SEGMENT, PGSFrameCount:%d\n", PGSFrameCount);

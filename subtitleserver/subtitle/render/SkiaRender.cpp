@@ -109,3 +109,7 @@ bool SkiaRender::hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu) {
     return drawAndPost();
 }
 
+bool SkiaRender::hideObjectIdSubtitleItem(int type, int objectId) {
+    SUBTITLE_LOGI("hideObjectIdSubtitleItem");
+    return drawAndPost();
+}

@@ -41,6 +41,19 @@ using amlogic::AndroidCallbackMessageQueue;
 static const int FADING_SUB = 0;
 static const int SHOWING_SUB = 1;
 
+
+bool AndroidHidlRemoteRender::postObjectIdSubtitleData(int objectId) {
+    sp<AndroidCallbackMessageQueue> queue = AndroidCallbackMessageQueue::Instance();
+    SUBTITLE_LOGI("AndroidHidlRemoteRender:%s mShowingSubs.size()=%d objectId:%d",__func__, mShowingSubs.size(),objectId);
+    if (queue != nullptr) {
+        queue->postDisplayData(nullptr, mParseType, 0, 0, 0, 0, 0, 0, 0, FADING_SUB, objectId);
+        return true;
+    } else {
+        SUBTITLE_LOGE("Error! should not null here!");
+        return false;
+    }
+}
+
 bool AndroidHidlRemoteRender::postSubtitleData() {
     // TODO: share buffers. if need performance
     //std:: string out;
@@ -50,8 +63,8 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
 
     if (mShowingSubs.size() <= 0) {
         if (queue != nullptr) {
-            for (int i=1; i<=mCurrentMaxObjectId; i++) {
-                SUBTITLE_LOGI("AndroidHidlRemoteRender:%s objectId=%d",__func__, i);
+            for (int i=0; i<=mCurrentMaxObjectId; i++) {
+                SUBTITLE_LOGI("AndroidHidlRemoteRender:%s objectId=%d mCurrentMaxObjectId:%d",__func__, i, mCurrentMaxObjectId);
                 queue->postDisplayData(nullptr, mParseType, 0, 0, 0, 0, 0, 0, 0, FADING_SUB, i);
             }
             mCurrentMaxObjectId = 0;
@@ -126,8 +139,6 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
     return false;
 }
 
-
-
 // TODO: the subtitle may has some params, config how to render
 //       Need impl later.
 bool AndroidHidlRemoteRender::showSubtitleItem(std::shared_ptr<AML_SPUVAR> spu, int type) {
@@ -153,6 +164,13 @@ bool AndroidHidlRemoteRender::hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu) 
     //mShowingSubs.remove(spu);
     mShowingSubs.clear();
     return postSubtitleData();
+}
+
+bool AndroidHidlRemoteRender::hideObjectIdSubtitleItem( int type, int objectId) {
+    SUBTITLE_LOGI("hideObjectIdSubtitleItem type:%d objectId:%d", type, objectId);
+    mParseType = type;
+
+    return postObjectIdSubtitleData(objectId);
 }
 
 void AndroidHidlRemoteRender::removeSubtitleItem(std::shared_ptr<AML_SPUVAR> spu)  {
