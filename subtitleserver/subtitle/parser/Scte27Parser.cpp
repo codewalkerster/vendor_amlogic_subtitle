@@ -219,6 +219,7 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
 
     if (simple_bitmap->top_h >= simple_bitmap->bottom_h || simple_bitmap->top_v >= simple_bitmap->bottom_v) {
         free (simple_bitmap);
+        simple_bitmap = nullptr;
         SUBTITLE_LOGE("%s top_h:%d bottom_h:%d top_v:%d bottom_v:%d", __FUNCTION__,simple_bitmap->top_h, simple_bitmap->bottom_h, simple_bitmap->top_v, simple_bitmap->bottom_v);
         return;
     }
@@ -251,6 +252,7 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
                 simple_bitmap->frame_bg_style.frame_bottom_h,
                 simple_bitmap->frame_bg_style.frame_bottom_v);
             free (simple_bitmap);
+            simple_bitmap = nullptr;
             return;
         }
         buffer = &buffer[8];
@@ -292,6 +294,7 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
     if (!bitmap) {
         SUBTITLE_LOGE("%s bitmap is null", __FUNCTION__);
         free (simple_bitmap);
+        simple_bitmap = nullptr;
         return;
     }
     memset(bitmap, 0, bitmap_size);
@@ -417,6 +420,8 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
         SUBTITLE_LOGE("%s malloc bmp failed!\n",__FUNCTION__);
         free (bitmap);
         free (simple_bitmap);
+        bitmap = nullptr;
+        simple_bitmap = nullptr;
         return;
     }
     memset(bmp, 0, bitmap_width*bitmap_height*4);
@@ -452,6 +457,9 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
         free (bmp);
         free (bitmap);
         free (simple_bitmap);
+        bmp = nullptr;
+        bitmap = nullptr;
+        simple_bitmap = nullptr;
         return;
     }
     memset(spu->spu_data, 0, bitmap_width*bitmap_height*4);
@@ -470,13 +478,13 @@ void Scte27Parser::decodeBitmap(std::shared_ptr<AML_SPUVAR> spu, uint8_t* buffer
         simple_bitmap->outline_style,
         simple_bitmap->character_color,
         simple_bitmap->bitmap_length);
-    if (!spu->spu_data) {
-        SUBTITLE_LOGE("%s malloc SCTE27_SUB_SIZE failed!\n",__FUNCTION__);
-        free (bmp);
-        free (bitmap);
-        free (simple_bitmap);
-        return;
-    }
+
+    free (bmp);
+    free (bitmap);
+    free (simple_bitmap);
+    bmp = nullptr;
+    bitmap = nullptr;
+    simple_bitmap = nullptr;
 }
 
 int Scte27Parser::decodeMessageBodySubtitle(std::shared_ptr<AML_SPUVAR> spu, char *pSrc, const int size) {

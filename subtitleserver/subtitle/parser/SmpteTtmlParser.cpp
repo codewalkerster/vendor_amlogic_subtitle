@@ -432,7 +432,7 @@ int SmpteTtmlParser::SmpteTtmlDecodeFrame(char *srcData, int srcLen, int64_t bas
         srcLen--;
     }
 
-    while (srcData[bufSize] != '>' && bufSize > 0) {
+    while (bufSize > 0 && srcData[bufSize -1] != '>') {
         bufSize--;
     }
 

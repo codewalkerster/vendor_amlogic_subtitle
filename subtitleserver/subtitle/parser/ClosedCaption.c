@@ -903,6 +903,10 @@ int ClosedCaptionCreate(ClosedCaptionCreatePara_t *para, ClosedCaptionHandleType
     /* init the tv cc decoder */
     tvcc_init(&cc->decoder, para->lang, 10, para->decoder_param);
     if (cc->decoder.vbi == NULL) {
+        if (cc->json_chain_head) {
+            free(cc->json_chain_head);
+            cc->json_chain_head = NULL;
+        }
         free(cc);
         return CLOSED_CAPTION_ERROR_LIBZVBI;
     }

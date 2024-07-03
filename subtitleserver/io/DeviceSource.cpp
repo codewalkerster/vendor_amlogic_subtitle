@@ -171,6 +171,10 @@ void DeviceSource::loopDriverData() {
             if (r < 0) continue;
             char *rdBuffer = new char[size]();
             int read = readDriverData(rdBuffer,  size);
+            /*
+             * deconstructor will call delete []
+             */
+            /* coverity[leaked_storage] */
             std::shared_ptr<char> spBuf = std::shared_ptr<char>(rdBuffer, [](char *buf) { delete [] buf; });
             mSegment->push(spBuf, read);
         } else {

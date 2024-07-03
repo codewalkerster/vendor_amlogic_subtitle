@@ -140,8 +140,10 @@ vbi_data_rate reference to vbi document.
 #define VBI_LINE_MIN               6
 #define VBI_LINE_MAX               25
 
-#define ATV_TELETEXT_SUB_HEADER_LEN 9
-#define DTV_SUB_DVB_TELETEXT 13
+#define ATV_TELETEXT_DATA_LEN        42
+#define ATV_TELETEXT_SUB_HEADER_LEN  9
+
+#define DTV_SUB_DVB_TELETEXT         13
 
 enum vbi_package_type_e {
     VBI_PACKAGE_CC1 = 1,

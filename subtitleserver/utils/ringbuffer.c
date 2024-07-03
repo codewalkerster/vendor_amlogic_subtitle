@@ -268,8 +268,15 @@ rbuf_handle_t ringbuffer_create(int size, const char*name)
     return rbuf;
 
 error:
-    if (rbuf)
+    if (rbuf) {
+        if (rbuf->buffer) {
+            free(rbuf->buffer);
+            rbuf->buffer = NULL;
+        }
         free(rbuf);
+        rbuf = NULL;
+
+    }
 
     return NULL;
 }

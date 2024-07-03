@@ -207,17 +207,20 @@ void VbiSource::loopDriverData() {
                 sub_header[7] = (pd->line_num >> 8) & 0xff;
                 sub_header[8] = pd->line_num & 0xff;
 
-                int size = ATV_TELETEXT_SUB_HEADER_LEN + 42;
+                int size = ATV_TELETEXT_SUB_HEADER_LEN + ATV_TELETEXT_DATA_LEN;
                 char *rdBuffer = new char[size]();
-                //int read = readDriverData(rdBuffer,  size);
                 memcpy(rdBuffer, sub_header, ATV_TELETEXT_SUB_HEADER_LEN);
-                memcpy(rdBuffer + ATV_TELETEXT_SUB_HEADER_LEN, (char *)pd->b, 42);
+                memcpy(rdBuffer + ATV_TELETEXT_SUB_HEADER_LEN, (char *)pd->b, ATV_TELETEXT_DATA_LEN);
+                /*
+                 * deconstructor will call delete []
+                 */
+                /* coverity[leaked_storage] */
                 std::shared_ptr<char> spBuf = std::shared_ptr<char>(rdBuffer, [](char *buf) { delete [] buf; });
                 mSegment->push(spBuf, size);
                 if (mDumpSub) {
                     static char slice_buffer[MAX_DUMP_DATA_LENGTH * 4];
-                    for (int i=0; i < strlen((char*)pd->b) && i< MAX_DUMP_DATA_LENGTH; i++) {
-                        sprintf(&slice_buffer[i*3], " %02x", slice_buffer[i]);
+                    for (int i = 0; i < ATV_TELETEXT_DATA_LEN; i++) {
+                        sprintf(&slice_buffer[i*3], " %02x", pd->b[i]);
                     }
                     SUBTITLE_LOGI("line data: %s", slice_buffer);
                 }

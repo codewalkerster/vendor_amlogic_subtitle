@@ -126,6 +126,11 @@ static mpeg_t *mpeg_open(int fd) {
             SUBTITLE_LOGI("fopen Vobsub file failed");
         if (err)
             free(res);
+    } else {
+        if (stream) {
+            free(stream);
+            stream = NULL;
+        }
     }
 
 /*

@@ -35,6 +35,8 @@
 
 #include "SubtitleLog.h"
 #include "ClosedCaptionJson.h"
+#include "ClosedCaption.h"
+
 
 
 typedef struct {
@@ -757,6 +759,10 @@ int tvcc_to_json (struct tvcc_decoder *td, int pgno, char *buf, size_t len) {
         if (!vbi_fetch_cc_page(td->vbi, &pg, pgno, 1)) return -1;
         r = vbi_page_to_json(&pg, &out);
     } else {
+        if (pgno > CLOSED_CAPTION_SERVICE6) {
+            SUBTITLE_LOGE("Error!tvcc_to_json pgno %d more than CLOSED_CAPTION_SERVICE6(pgno:14)", pgno);
+            return -1;
+        }
         struct dtvcc_service *ds = &td->dtvcc.service[pgno - 1 - 8];
         r = dtvcc_service_to_json(td, ds, &out);
     }

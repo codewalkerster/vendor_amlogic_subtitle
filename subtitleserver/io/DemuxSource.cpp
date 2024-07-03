@@ -92,6 +92,10 @@ static inline unsigned long sysfsReadInt(const char *path, int base) {
 static void pes_data_cb(int dev_no, int fhandle, const uint8_t *data, int len, void *user_data) {
     char *rdBuffer = new char[len]();
     memcpy(rdBuffer, data, len);
+    /*
+     * deconstructor will call delete []
+     */
+    /* coverity[leaked_storage] */
     std::shared_ptr<char> spBuf = std::shared_ptr<char>(rdBuffer, [](char *buf) { delete [] buf; });
     DemuxSource::getCurrentInstance()->mSegment->push(spBuf, len);
 

@@ -555,6 +555,7 @@ static int aml_process_scte_userdata(UserdataDeviceType *dev, uint8_t *data, int
 
     char display_buffer[MAX_DUMP_DATA_LENGTH*4];
     if (mDumpSub) {
+        p = data;
         for (int i=0; i<len && i< MAX_DUMP_DATA_LENGTH; i++) {
             sprintf(&display_buffer[i*3], " %02x", p[i]);
         }
@@ -641,7 +642,8 @@ static int aml_process_scte_userdata(UserdataDeviceType *dev, uint8_t *data, int
     size = 7 + cc_count*3;
 
     if (mDumpSub) {
-        for (int i=0; i<size && i<MAX_DUMP_DATA_LENGTH; i++) {
+        int dataLen = sizeof(cc_data) / sizeof(cc_data[0]);
+        for (int i=0; i < size && i < dataLen; i++) {
                 sprintf(display_buffer+3*i, " %02x", cc_data[i]);
         }
         SUBTITLE_LOGI("scte_write_buffer size: %d data: %s", size, display_buffer);
