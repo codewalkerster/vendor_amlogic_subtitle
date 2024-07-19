@@ -638,6 +638,8 @@ int SmpteTtmlParser::SmpteTtmlDecodeFrame(char *srcData, int srcLen, int64_t bas
         if (isMore32Bit(spu->pts) && !isMore32Bit(mDataSource->getSyncTime())) {
             SUBTITLE_LOGI("SUB PTS is greater than 32 bits, before subpts: %lld, vpts:%lld", spu->pts, mDataSource->getSyncTime());
             spu->pts &= TSYNC_32_BIT_PTS;
+            spu->m_delay &= TSYNC_32_BIT_PTS;
+            SUBTITLE_LOGI("SUB PTS is greater than 32 bits, after subpts: %lld, m_delay: %lld, vpts:%lld", spu->pts, spu->m_delay, mDataSource->getSyncTime());
         }
 
 
