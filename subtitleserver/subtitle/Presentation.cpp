@@ -643,21 +643,6 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                                 mPresent->mEmittedShowingSpu.pop_front();
                             }
                         }
-                        SUBTITLE_LOGI("Show SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) spu->objectSegmentId:%d mPresent->mEmittedShowingSpu.size():%d, mCurrentMaxObjectId:%d",
-                                ns2ms(mPresent->mCurrentPresentRelativeTime),
-                                ns2ms(mPresent->mStartTimeModifier),
-                                spu->pts, spu->pts/DVB_TIME_MULTI,
-                                spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
-                                spu->spu_data, spu->spu_data,
-                                spu->objectSegmentId,
-                                mPresent->mEmittedShowingSpu.size(),
-                                mCurrentMaxObjectId);
-                        if (mCurrentMaxObjectId < spu->objectSegmentId) mCurrentMaxObjectId = spu->objectSegmentId;
-                        if (spu->spu_data == nullptr) {
-                             mPresent->mRender->hideSubtitleItem(spu);
-                        } else {
-                             mPresent->mRender->showSubtitleItem(spu, mPresent->mParser->getParseType());
-                        }
 
                         if (TYPE_SUBTITLE_PGS == spu->subtitle_type && mCurrentMaxObjectId > 0 && mCurrentMaxObjectId > spu->objectSegmentId) {
                                 SUBTITLE_LOGI("Show SPU data:%p(%p) spu->objectSegmentId:%d mPresent->mEmittedShowingSpu.size():%d mCurrentMaxObjectId:%d",
@@ -679,6 +664,21 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                                 }
                                 mCurrentMaxObjectId = mCurrentMaxObjectId - spuTemp->objectSegmentId;
                             }
+                        }
+                        SUBTITLE_LOGI("Show SPU: TimeStamp:%lld startAtPts=%lld ItemPts=%lld(%lld) duration:%lld(%lld) data:%p(%p) spu->objectSegmentId:%d mPresent->mEmittedShowingSpu.size():%d, mCurrentMaxObjectId:%d",
+                                ns2ms(mPresent->mCurrentPresentRelativeTime),
+                                ns2ms(mPresent->mStartTimeModifier),
+                                spu->pts, spu->pts/DVB_TIME_MULTI,
+                                spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
+                                spu->spu_data, spu->spu_data,
+                                spu->objectSegmentId,
+                                mPresent->mEmittedShowingSpu.size(),
+                                mCurrentMaxObjectId);
+                        if (mCurrentMaxObjectId < spu->objectSegmentId) mCurrentMaxObjectId = spu->objectSegmentId;
+                        if (spu->spu_data == nullptr) {
+                             mPresent->mRender->hideSubtitleItem(spu);
+                        } else {
+                             mPresent->mRender->showSubtitleItem(spu, mPresent->mParser->getParseType());
                         }
                         // fix fadding time, if not valid.
                         if (spu->isImmediatePresent) {
