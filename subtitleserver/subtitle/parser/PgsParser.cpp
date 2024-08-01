@@ -364,15 +364,17 @@ static inline void afRlebitmapRender(PgsShowData *showdata, PgsShowData *result,
     int x, y, count;
     unsigned char colorIndex;
 
-    if (showdata == NULL) return;
+    if (showdata == NULL || showdata->rleBuf == NULL || showdata->palette == NULL) return;
 
     ptr = showdata->rleBuf;
     endBuf = showdata->rleBuf + showdata->rleBufSize;
     showdata->renderHeight = 0;
     y = 0;
-    while ((y < showdata->imageHeight) && (ptr < endBuf)) {
+    while (y < showdata->imageHeight && ptr < endBuf) {
         x = 0;
         while ((x < showdata->imageWidth) && (ptr < endBuf)) {
+            if ((ptr + 1) >= endBuf) break;
+
             if ((*ptr == 0) && (*(ptr + 1) == 0)) {
                 if (x > 0) {
                     for (; x < showdata->imageWidth; x++) {
@@ -381,14 +383,16 @@ static inline void afRlebitmapRender(PgsShowData *showdata, PgsShowData *result,
                 }
                 ptr += 2;
             } else if (*ptr) {
-                drawPixel2Result(x, y,mode ? showdata->palette[*ptr] : *ptr, result);
+                drawPixel2Result(x, y, mode ? showdata->palette[*ptr] : *ptr, result);
                 x++;
                 ptr++;
             } else {
                 ptr++;
                 if (*ptr & 0x40) {
+                    if ((ptr + 2) >= endBuf) break;
                     count = ((*ptr & 0x3f) << 8) | (*(ptr + 1));
                     if (*ptr & 0x80) {
+                        if ((ptr + 2) >= endBuf) break;
                         colorIndex = *(ptr + 2);
                         ptr++;
                     } else {
@@ -398,6 +402,7 @@ static inline void afRlebitmapRender(PgsShowData *showdata, PgsShowData *result,
                 } else {
                     count = *ptr & 0x3f;
                     if (*ptr & 0x80) {
+                        if ((ptr + 1) >= endBuf) break;
                         colorIndex = *(ptr + 1);
                         ptr++;
                     } else {
@@ -406,7 +411,7 @@ static inline void afRlebitmapRender(PgsShowData *showdata, PgsShowData *result,
                     ptr++;
                 }
                 for (; count > 0; count--, x++) {
-                    drawPixel2Result(x, y, mode?showdata->palette[colorIndex]:colorIndex, result);
+                    drawPixel2Result(x, y, mode ? showdata->palette[colorIndex] : colorIndex, result);
                 }
             }
         }
