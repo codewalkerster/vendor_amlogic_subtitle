@@ -131,9 +131,14 @@ struct JniContext {
     }
     void callJava_showTextData(const char *data, int type, int cmd, int objectSegmentId) {
         bool needDetach = false;
-        //jint i = 0;
+
         JNIEnv *env = getJniEnv(&needDetach);
-        //jstring string = env->NewStringUTF(data);
+        if (mSubtitleManagerObject == nullptr || env == nullptr) {
+            ALOGE("callJava_showTextData: mSubtitleManagerObject is Null or env is Null");
+            if (needDetach) DetachJniEnv();
+            return;
+        }
+
         jbyteArray byteArray = env->NewByteArray(strlen(data));
         env->SetByteArrayRegion(byteArray, 0, strlen(data),(jbyte *)data);
         // Text data do not care positions, no such info!
@@ -154,6 +159,12 @@ struct JniContext {
         }
         ALOGI("callJava_showBitmapData width=%d height=%d size=%d", width, height, size);
         JNIEnv *env = getJniEnv(&needDetach);
+        if (mSubtitleManagerObject == nullptr || env == nullptr) {
+            ALOGE("callJava_showBitmapData: mSubtitleManagerObject is Null or env is Null");
+            if (needDetach) DetachJniEnv();
+            return;
+        }
+
         if (width * height * 4 == size) {
             jintArray array = env->NewIntArray(width*height);
             env->SetIntArrayRegion(array, 0, width*height, (jint *)data);
