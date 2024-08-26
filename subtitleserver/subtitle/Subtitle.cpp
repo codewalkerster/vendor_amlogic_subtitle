@@ -381,10 +381,6 @@ void Subtitle::run() {
         mPendingAction = -1;
 
         // wait100ms, still no parser, then start default CC
-        if (mSubPrams->playerId <= 0) {
-            SUBTITLE_LOGI("%s, playerid is an invalid value, playerid = %d",__func__, mSubPrams->playerId);
-        }
-
         if (mParser == nullptr) {
             int value = (mSubPrams->closedCaptionParam.ChannelID >> 8) == 1 ? 1:(mSubPrams->playerId > 0 ? 1 : 0);
             if (value) {
