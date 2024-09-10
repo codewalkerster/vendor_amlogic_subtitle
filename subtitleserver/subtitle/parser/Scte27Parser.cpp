@@ -521,17 +521,10 @@ int Scte27Parser::decodeMessageBodySubtitle(std::shared_ptr<AML_SPUVAR> spu, cha
     int subtitle_type       = (buf[8] >> 4) & 0xF;
     int vlc_subtitle_type   = buf[8] >> 4;
     int block_length        = (buf[10] << 8) | buf[11];
-    /*for coverity: SWPL-143128 (CID 286925 : sign_extension)
-     *If (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7] is greater than 0x7FFFFFFF,
-     *the upper bits of the result will all be 1 if change to int64_t directly.
-     *so change to uint64_t first
-     */
-    uint64_t u_reveal_pts = (uint64_t)((buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7]);
-    int64_t reveal_pts = static_cast<int64_t>(u_reveal_pts);
-    reveal_pts = (reveal_pts < 0) ? -reveal_pts : reveal_pts;
+    uint32_t reveal_pts = (uint32_t)((buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7]);
     int display_duration    = ((buf[8] & 0x07) << 8) | buf[9];
 
-    SUBTITLE_LOGI("%s pre_clear_display %d immediate %d display_standard:%d subtitle_type:%d vlc_subtitle_type:%d block_length:%d reveal_pts :%lld display_duration:%d size:%d", __FUNCTION__, pre_clear_display, immediate, display_standard, subtitle_type, vlc_subtitle_type, block_length, reveal_pts, display_duration, size);
+    SUBTITLE_LOGI("%s pre_clear_display %d immediate %d display_standard:%d subtitle_type:%d vlc_subtitle_type:%d block_length:%d reveal_pts :%u display_duration:%d size:%d", __FUNCTION__, pre_clear_display, immediate, display_standard, subtitle_type, vlc_subtitle_type, block_length, reveal_pts, display_duration, size);
 
     if (block_length < 12 || block_length > size) {
         SUBTITLE_LOGE("%s sub_node->block_len invalid blen %x size %x", __FUNCTION__, block_length, size);
