@@ -253,6 +253,7 @@ typedef struct
     int (*enable_filter)(DemuxDeviceType *dev, DemuxFilterType *filter, bool enable);
     int (*set_buf_size)(DemuxDeviceType *dev, DemuxFilterType *filter, int size);
     int (*poll)(DemuxDeviceType *dev, Demux_FilterMaskType *mask, int timeout);
+    int (*poll_exit)(DemuxDeviceType *dev);
     int (*read)(DemuxDeviceType *dev, DemuxFilterType *filter, uint8_t *buf, int *size);
     int (*set_source)(DemuxDeviceType *dev, AmlogicDemuxSourceType src);
 } DemuxDriverType;

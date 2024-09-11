@@ -531,6 +531,7 @@ int DemuxStartFilter(int dev_no, int fhandle) {
         }
         if (ret == AM_SUCCESS) {
             filter->enable = true;
+            ret = dev->drv->poll_exit(dev);
         }
     }
     pthread_mutex_unlock(&dev->lock);

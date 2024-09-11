@@ -81,6 +81,7 @@ static int dvb_set_pes_filter(DemuxDeviceType *dev, DemuxFilterType *filter, con
 static int dvb_enable_filter(DemuxDeviceType *dev, DemuxFilterType *filter, bool enable);
 static int dvb_set_buf_size(DemuxDeviceType *dev, DemuxFilterType *filter, int size);
 static int dvb_poll(DemuxDeviceType *dev, Demux_FilterMaskType *mask, int timeout);
+static int dvb_poll_exit(DemuxDeviceType *dev);
 static int dvb_read(DemuxDeviceType *dev, DemuxFilterType *filter, uint8_t *buf, int *size);
 static int dvb_set_source(DemuxDeviceType *dev, AmlogicDemuxSourceType src);
 
@@ -94,6 +95,7 @@ const DemuxDriverType linux_dvb_dmx_drv = {
 .enable_filter  = dvb_enable_filter,
 .set_buf_size   = dvb_set_buf_size,
 .poll           = dvb_poll,
+.poll_exit      = dvb_poll_exit,
 .read           = dvb_read,
 .wake           = dvb_wake,
 .set_source     = dvb_set_source
@@ -116,6 +118,9 @@ static int dvb_open(DemuxDeviceType *dev, const AmlogicDemuxOpenParameterType *p
     snprintf(dmx->dev_name, sizeof(dmx->dev_name), "/dev/dvb0.demux%d", dev->dev_no);
     for (i=0; i<DEMUX_FILTER_COUNT; i++)
         dmx->fd[i] = -1;
+
+    dmx->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (dmx->event_fd == -1) SUBTITLE_LOGI("eventfd error");
     dev->drv_data = dmx;
     return AM_SUCCESS;
 }
@@ -258,6 +263,14 @@ static int dvb_poll(DemuxDeviceType *dev, Demux_FilterMaskType *mask, int timeou
     return AM_SUCCESS;
 }
 
+static int dvb_poll_exit(DemuxDeviceType *dev) {
+    DVBDmx_t *dmx = (DVBDmx_t*)dev->drv_data;
+    int64_t pad = 1;
+    SUBTITLE_LOGI("dvb_poll_exit");
+    write(dmx->event_fd, &pad, 8);
+    return AM_SUCCESS;
+}
+
 /*
  *function:@dvb_poll timeout too long, this function can wake up poll advance.
  */
@@ -265,6 +278,7 @@ static int dvb_wake(DemuxDeviceType *dev) {
     DVBDmx_t *dmx = (DVBDmx_t*)dev->drv_data;
     uint64_t wdata  = 0;
     int event_fd = dmx->event_fd;
+    SUBTITLE_LOGI("dvb_wake event_fd:%d",event_fd);
     int ret = write(event_fd, &wdata, 8);
     if (ret != 8) {
         SUBTITLE_LOGE("dvb_wake write %d bytes instead of 8!", ret);
