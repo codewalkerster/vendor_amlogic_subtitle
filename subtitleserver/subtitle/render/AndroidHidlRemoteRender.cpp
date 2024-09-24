@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -44,7 +44,8 @@ static const int SHOWING_SUB = 1;
 
 bool AndroidHidlRemoteRender::postObjectIdSubtitleData(int objectId) {
     sp<AndroidCallbackMessageQueue> queue = AndroidCallbackMessageQueue::Instance();
-    SUBTITLE_LOGI("AndroidHidlRemoteRender:%s mShowingSubs.size()=%d objectId:%d",__func__, mShowingSubs.size(),objectId);
+    SUBTITLE_LOGI("%s_clear_display: objectId=%d mShowingSubs=%zu\n",
+                  __func__, objectId, mShowingSubs.size());
     if (queue != nullptr) {
         queue->postDisplayData(nullptr, mParseType, 0, 0, 0, 0, 0, 0, 0, FADING_SUB, objectId);
         return true;
@@ -64,7 +65,8 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
     if (mShowingSubs.size() <= 0) {
         if (queue != nullptr) {
             for (int i=0; i<=mCurrentMaxObjectId; i++) {
-                SUBTITLE_LOGI("AndroidHidlRemoteRender:%s objectId=%d mCurrentMaxObjectId:%d",__func__, i, mCurrentMaxObjectId);
+                SUBTITLE_LOGI("%s_clear_display: objectId=%d mCurrentMaxObjectId:%d",
+                              __func__, i, mCurrentMaxObjectId);
                 queue->postDisplayData(nullptr, mParseType, 0, 0, 0, 0, 0, 0, 0, FADING_SUB, i);
             }
             mCurrentMaxObjectId = 0;
@@ -90,7 +92,8 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
                 SUBTITLE_LOGE("Error! why not decoded spu_data, but push to show???");
                 continue;
             }
-            SUBTITLE_LOGE("nullptr pts:%lld, data=%p size=%d objectSegmentId=%d", (*it)->pts,(*it)->spu_data, (*it)->buffer_size, objectSegmentId);
+            SUBTITLE_LOGE("nullptr pts:%lld, data=%p size=%d objectSegmentId=%d",
+                          (*it)->pts,(*it)->spu_data, (*it)->buffer_size, objectSegmentId);
         }
 
         width = (*it)->spu_width;
@@ -107,8 +110,9 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
         if (mCurrentMaxObjectId < objectSegmentId) mCurrentMaxObjectId = objectSegmentId;
         size = (*it)->buffer_size;
 
-        SUBTITLE_LOGI(" in AndroidHidlRemoteRender:%s type:%d, width=%d, height=%d pts:%lld, data=%p size=%d objectSegmentId=%d",
-            __func__, mParseType,  width, height, (*it)->pts, (*it)->spu_data, (*it)->buffer_size, objectSegmentId);
+        SUBTITLE_LOGI("%s_display: objectId=%d type=%d x%d y%d w%d h%d pts:%lld, data=%p size=%d",
+                      __func__, objectSegmentId, mParseType, x, y, width, height,
+                      (*it)->pts, (*it)->spu_data, (*it)->buffer_size);
         DisplayType  displayType = ParserFactory::getDisplayType(mParseType);
         if ((SUBTITLE_IMAGE_DISPLAY == displayType) && ((0 == width) || (0 == height))) {
            continue;
@@ -129,7 +133,8 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
         /* The same as vlc player. showing and fading policy */
         if (queue != nullptr) {
             mParseType = ((*it)->isQtoneData) ? TYPE_SUBTITLE_Q_TONE_DATA: mParseType;
-            queue->postDisplayData((const char *)((*it)->spu_data), mParseType, x, y, width, height, videoWidth, videoHeight, size, SHOWING_SUB, objectSegmentId);
+            queue->postDisplayData((const char *)((*it)->spu_data), mParseType, x, y, width,
+                                    height, videoWidth, videoHeight, size, SHOWING_SUB, objectSegmentId);
             return true;
         } else {
             return false;
@@ -142,22 +147,21 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
 // TODO: the subtitle may has some params, config how to render
 //       Need impl later.
 bool AndroidHidlRemoteRender::showSubtitleItem(std::shared_ptr<AML_SPUVAR> spu, int type) {
-    SUBTITLE_LOGI("showSubtitleItem");
+    SUBTITLE_LOGI("%s", __func__);
     mShowingSubs.push_back(spu);
     mParseType = type;
-
     return postSubtitleData();
 }
 
 void AndroidHidlRemoteRender::resetSubtitleItem() {
+    SUBTITLE_LOGI("%s", __func__);
     mShowingSubs.clear();
-
     // flush showing
     postSubtitleData();
 }
 
 bool AndroidHidlRemoteRender::hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu) {
-    SUBTITLE_LOGI("hideSubtitleItem");
+    SUBTITLE_LOGI("%s", __func__);
     //some stream is special.some subtitles have pts, but some subtitles don't have pts.
     //In this situation if use the remove() function,it may cause the subtitle contains
     //pts don't hide until the subtitle without pts disappear.
@@ -166,15 +170,15 @@ bool AndroidHidlRemoteRender::hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu) 
     return postSubtitleData();
 }
 
-bool AndroidHidlRemoteRender::hideObjectIdSubtitleItem( int type, int objectId) {
-    SUBTITLE_LOGI("hideObjectIdSubtitleItem type:%d objectId:%d", type, objectId);
+bool AndroidHidlRemoteRender::hideObjectIdSubtitleItem(int type, int objectId) {
+    SUBTITLE_LOGI("%s: objectId=%d type=%d ", __func__, objectId, type);
     mParseType = type;
 
     return postObjectIdSubtitleData(objectId);
 }
 
 void AndroidHidlRemoteRender::removeSubtitleItem(std::shared_ptr<AML_SPUVAR> spu)  {
-    SUBTITLE_LOGI("removeSubtitleItem");
+    SUBTITLE_LOGI("%s: objectId=%d", __func__, spu->objectSegmentId);
     mShowingSubs.remove(spu);
 }
 

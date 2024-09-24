@@ -87,7 +87,6 @@ private:
         void handleStreamSub(const Message& message);
         std::shared_ptr<AML_SPUVAR> mLastShowingSpu;
         sp<Looper> mLooper;
-        int mCurrentMaxObjectId;
     };
 
     int64_t mCurrentPresentRelativeTime;

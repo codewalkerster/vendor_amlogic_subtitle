@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -23,931 +23,1033 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 #define LOG_TAG "PgsParser"
-#include <unistd.h>
-#include <fcntl.h>
-#include <string>
-#include <list>
-#include <thread>
-#include <algorithm>
-#include <functional>
+
+#include "PgsParser.h"
 
 #include "SubtitleLog.h"
 #include "StreamUtils.h"
-
-#include "SubtitleTypes.h"
-#include "PgsParser.h"
 #include "ParserFactory.h"
 #include "VideoInfo.h"
 
-#define MAX_EPOCH_PALETTES 8 // Max 8 allowed per PGS epoch
-#define MAX_EPOCH_OBJECTS 64 // Max 64 allowed per PGS epoch
-#define MAX_OBJECT_REFS 2    // Max objects per display set
 
-#define DEFAULT_DELAY_TIME 5 // second
-#define DEFAULT_DVB_TIME_MULTI 90
-
-
-enum SegmentType {
-    PALETTE_SEGMENT      = 0x14,
-    OBJECT_SEGMENT       = 0x15,
-    PRESENTATION_SEGMENT = 0x16,
-    WINDOW_SEGMENT       = 0x17,
-    DISPLAY_SEGMENT      = 0x80,
+// Follow the latest solution of ffmpeg 7.0.1
+// Refer to TV-121429/OTT-63501/SWPL-174424 for history.
+// crop table
+static const int MAX_NEG_CROP = 1024;
+#define times4(x) x, x, x, x
+#define times256(x) times4(times4(times4(times4(times4(x)))))
+const uint8_t ff_crop_tab[256 + 2 * MAX_NEG_CROP] = {
+times256(0x00),
+0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
+0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,
+0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x29,0x2A,0x2B,0x2C,0x2D,0x2E,0x2F,
+0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0x3A,0x3B,0x3C,0x3D,0x3E,0x3F,
+0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x48,0x49,0x4A,0x4B,0x4C,0x4D,0x4E,0x4F,
+0x50,0x51,0x52,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5A,0x5B,0x5C,0x5D,0x5E,0x5F,
+0x60,0x61,0x62,0x63,0x64,0x65,0x66,0x67,0x68,0x69,0x6A,0x6B,0x6C,0x6D,0x6E,0x6F,
+0x70,0x71,0x72,0x73,0x74,0x75,0x76,0x77,0x78,0x79,0x7A,0x7B,0x7C,0x7D,0x7E,0x7F,
+0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8A,0x8B,0x8C,0x8D,0x8E,0x8F,
+0x90,0x91,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9A,0x9B,0x9C,0x9D,0x9E,0x9F,
+0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF,
+0xB0,0xB1,0xB2,0xB3,0xB4,0xB5,0xB6,0xB7,0xB8,0xB9,0xBA,0xBB,0xBC,0xBD,0xBE,0xBF,
+0xC0,0xC1,0xC2,0xC3,0xC4,0xC5,0xC6,0xC7,0xC8,0xC9,0xCA,0xCB,0xCC,0xCD,0xCE,0xCF,
+0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD6,0xD7,0xD8,0xD9,0xDA,0xDB,0xDC,0xDD,0xDE,0xDF,
+0xE0,0xE1,0xE2,0xE3,0xE4,0xE5,0xE6,0xE7,0xE8,0xE9,0xEA,0xEB,0xEC,0xED,0xEE,0xEF,
+0xF0,0xF1,0xF2,0xF3,0xF4,0xF5,0xF6,0xF7,0xF8,0xF9,0xFA,0xFB,0xFC,0xFD,0xFE,0xFF,
+times256(0xFF)
 };
+#define SCALEBITS 10
+#define ONE_HALF  (1 << (SCALEBITS - 1))
+#define FIX(x)    ((int) ((x) * (1<<SCALEBITS) + 0.5))
 
-struct PGSSubObjectRef {
-    int     id;
-    int     window_id;
-    uint8_t composition_flag;
-    int     x = 0;
-    int     y = 0;
-    int     crop_x;
-    int     crop_y;
-    int     crop_w;
-    int     crop_h;
-};
+#define YUV_TO_RGB1_CCIR(cb1, cr1)                        \
+{                                                         \
+    cb = (cb1) - 128;                                     \
+    cr = (cr1) - 128;                                     \
+    r_add = FIX(1.40200*255.0/224.0) * cr + ONE_HALF;     \
+    g_add = - FIX(0.34414*255.0/224.0) * cb -             \
+            FIX(0.71414*255.0/224.0) * cr + ONE_HALF;     \
+    b_add = FIX(1.77200*255.0/224.0) * cb + ONE_HALF;     \
+}
 
-struct PGSSubPalette {
-    int         id;
-    uint32_t    clut[256];
-};
+#define YUV_TO_RGB1_CCIR_BT709(cb1, cr1)                  \
+{                                                         \
+    cb    = (cb1) - 128;                                  \
+    cr    = (cr1) - 128;                                  \
+    r_add = ONE_HALF + FIX(1.5747 * 255.0 / 224.0) * cr;  \
+    g_add = ONE_HALF - FIX(0.1873 * 255.0 / 224.0) * cb - \
+                       FIX(0.4682 * 255.0 / 224.0) * cr;  \
+    b_add = ONE_HALF + FIX(1.8556 * 255.0 / 224.0) * cb;  \
+}
 
-struct PGSSubPalettes {
-    int           count;
-    PGSSubPalette palette[MAX_EPOCH_PALETTES];
-};
+// To be used for the BT709 variant as well
+#define YUV_TO_RGB2_CCIR(r, g, b, y1)       \
+{                                           \
+    y = ((y1) - 16) * FIX(255.0/219.0);     \
+    r = cm[(y + r_add) >> SCALEBITS];       \
+    g = cm[(y + g_add) >> SCALEBITS];       \
+    b = cm[(y + b_add) >> SCALEBITS];       \
+}
 
-struct PgsInfo {
-    int startTime;
-    int endTime;
-    int width;
-    int height;
-    char fpsCode;
-    int objectCount;
-    int objectId;
-    int versionNum;
-    PGSSubObjectRef objects[MAX_OBJECT_REFS];
+#define ARGB(r,g,b,a) (((unsigned)(a) << 24) | ((r) << 16) | ((g) << 8) | (b))
 
-    char state;
-    char paletteUpdateFlag;
-    char paletteIdRef;
-    char number;
+namespace {
 
-    int windowWidthOffset;
-    int windowHeightOffset;
-    int windowWidth;
-    int windowHeight;
-    int imageWidth;
-    int imageHeight;
-    int palette[0x100];
-    unsigned char *rleBuf;
-    int rleBufSize;
-    int rleReadOff;
-    /**/
-};
-
-struct PgsBuffer {
-    off_t pos;
-    unsigned char *pgs_data_buf;
-    int dataBufferSize;
-    unsigned char pgsTimeHeadBuf[13];
-};
-
-struct PgsItem {
-    int startTime;
-    int endTime;
-    off_t pos;
-};
-
-/* PGS subtitle API */
-struct PgsShowData {
-    int x;
-    int y;
-    int width;
-    int height;
-
-    int windowWidthOffset;
-    int windowHeightOffset;
-    int windowWidth;
-    int windowHeight;
-
-    int imageWidth;
-    int imageHeight;
-
-    int *palette;
-    unsigned char *rleBuf;
-    unsigned char *resultBuf;
-    int rleBufSize;
-    int renderHeight;
-    int64_t pts;
-    int objectSegmentId;
-};
-
-struct PgsSubtitleEpgs {
-    /* Add more members here */
-    PgsInfo *pgsInfo;
-    char *curIdxUrl;
-    PgsBuffer pgsBuffer;
-
-    int fd;
-    off_t filePos;
-    PgsItem *pgsItemTable;
-    int pgsItemCount;
-    int pgsDisplayIndex;
-
-    PgsShowData showdata;
-};
-
-
-static inline uint8_t readTimeHeader(uint8_t **bufStartPtr, int *pSize, int *startTime, int *endTime) {
-    int type;
-    unsigned char *buf = *bufStartPtr;
-    int size;
-    if (buf[0] == 'P' && buf[1] == 'G') {
-        *startTime = (buf[2]<<24) | (buf[3]<<16) | (buf[4]<<8) | (buf[5]);
-        *endTime = (buf[6]<<24) | (buf[7]<<16) | (buf[8]<<8) | (buf[9]);
-        type = buf[10];
-        size = (buf[11] << 8) | buf[12];
-        *bufStartPtr = buf + 13 + size;
-        *pSize = size;
-        return type;
+std::string int2StrWithLen(int num, int len) {
+    std::string str = std::to_string(abs(num));
+    while (str.length() < len) {
+        str = "0" + str;
     }
-    return 0;
-}
-
-static inline void readSubpictureHeader(unsigned char *buf, PgsInfo *pgsInfo) {
-    pgsInfo->width = (buf[0] << 8) | buf[1];
-    pgsInfo->height = (buf[2] << 8) | buf[3];
-    pgsInfo->fpsCode = buf[4];
-    pgsInfo->state = buf[7];   //0x80
-    pgsInfo->paletteUpdateFlag = buf[8];
-    pgsInfo->paletteIdRef = buf[9];
-    pgsInfo->objectCount = buf[0xa];
-    int cropping = 0;
-    for (int i = 0; i < pgsInfo->objectCount; i++) {
-        pgsInfo->objects[i].id = (buf[0xb + i*8 + cropping] << 8) | buf[0xc + i*8 + cropping];
-        pgsInfo->objects[i].window_id = buf[0xd + i*8 + cropping];
-        pgsInfo->objects[i].composition_flag = buf[0xe + i*8 + cropping]; //cropped |=0x80, forced |= 0x40
-        pgsInfo->objects[i].x = (buf[0xf + i*8 + cropping] << 8) | buf[0x10 + i*8 + cropping];
-        pgsInfo->objects[i].y = (buf[0x11 + i*8 + cropping] << 8) | buf[0x12 + i*8 + cropping];
-        // If cropping
-        if (pgsInfo->objects[i].composition_flag & 0x80) {
-            pgsInfo->objects[i].crop_x = (buf[0x13 + i*8] << 8) | buf[0x14 + i*8];
-            pgsInfo->objects[i].crop_y = (buf[0x15 + i*8] << 8) | buf[0x16 + i*8];
-            pgsInfo->objects[i].crop_w = (buf[0x17 + i*8] << 8) | buf[0x18 + i*8];
-            pgsInfo->objects[i].crop_h = (buf[0x19 + i*8] << 8) | buf[0x1A + i*8];
-            cropping = 8;
-        }
-        SUBTITLE_LOGI("--readSubpictureHeader--  i:%d id:%d window_id:%d composition_flag:%d x:%d y:%d crop_x:%d crop_y:%d crop_w:%d, crop_h:%d, width:%d height:%d fpsCode:0x%x state:0x%x paletteUpdateFlag:0x%x paletteIdRef:%d objectCount:%d\n",
-            i,
-            pgsInfo->objects[i].id,
-            pgsInfo->objects[i].window_id,
-            pgsInfo->objects[i].composition_flag,
-            pgsInfo->objects[i].x,
-            pgsInfo->objects[i].y,
-            pgsInfo->objects[i].crop_x,
-            pgsInfo->objects[i].crop_y,
-            pgsInfo->objects[i].crop_w,
-            pgsInfo->objects[i].crop_h ,
-            pgsInfo->width,
-            pgsInfo->height,
-            pgsInfo->fpsCode,
-            pgsInfo->state,
-            pgsInfo->paletteUpdateFlag,
-            pgsInfo->paletteIdRef,
-            pgsInfo->objectCount);
+    if (num < 0) {
+        return "-" + str;
     }
+    return str;
 }
 
-static inline void readWindowHeader(unsigned char *buf, PgsInfo *pgsInfo) {
-    SUBTITLE_LOGI("--readWindowHeader-- %d, %d\n", pgsInfo->imageWidth, pgsInfo->imageHeight);
-    pgsInfo->windowWidthOffset = (buf[2] << 8) | buf[3];
-    pgsInfo->windowHeightOffset = (buf[4] << 8) | buf[5];
-    pgsInfo->windowWidth = (buf[6] << 8) | buf[7];
-    pgsInfo->windowHeight = (buf[8] << 8) | buf[9];
-}
-static inline void readWindowInfo(unsigned char *buf, PgsInfo *pgsInfo) {
-    pgsInfo->windowWidth = (buf[0] << 8) | buf[1];
-    pgsInfo->windowHeight = (buf[2] << 8) | buf[3];
-    SUBTITLE_LOGI("readWindowInfo windowwidth:%d,windowHeight:%d",pgsInfo->windowWidth,pgsInfo->windowHeight);
-}
-
-
-static inline void readColorTable(unsigned char *buf, int size, PgsInfo *pgsInfo) {
-    SUBTITLE_LOGI("--readColorTable-- %d, %d\n", pgsInfo->imageWidth, pgsInfo->imageHeight);
-    for (int pos = 2; pos < size; pos += 5) {
-        unsigned char y = buf[pos + 1];
-        unsigned char u = buf[pos + 2];
-        unsigned char v = buf[pos + 3];
-        // Calculate RGB components
-        int r = (int)y + ((int)v - 128) + (((int)v - 128) * 103 >> 8);
-        int g = (int)y - (((int)u - 128) * 88 >> 8) - (((int)v - 128) * 183 >> 8);
-        int b = (int)y + ((int)u - 128) + (((int)u - 128) * 198 >> 8);
-        // Ensure color components are within [0, 255]
-        r = (r < 0) ? 0 : ((r > 255) ? 255 : r);
-        g = (g < 0) ? 0 : ((g > 255) ? 255 : g);
-        b = (b < 0) ? 0 : ((b > 255) ? 255 : b);
-        /*
-        R = Y + 1.140V
-        G = Y - 0.395U - 0.581V
-        B = Y + 2.032U
-        */
-        // When the transparency near white is too low, convert it to an opaque state
-        //pgsInfo->palette[buf[pos]] =
-        //    ((r > 255 ? 255: r) << 24) | ((g > 255 ? 255: g) << 16) | ((b > 255 ? 255: b) << 8) | (((buf[pos + 4] <= 0x0E) && (buf[pos + 4] > 0x00) && (r > 200 &&  g > 200 && b > 200)) ? 0xFF : buf[pos + 4]);
-
-        /* for coverity,  Logically dead code
-         * r, g, b is [0, 255], and never larger than 255*/
-        pgsInfo->palette[buf[pos]] =
-            (r << 24) | (g << 16) | (b << 8) | (((buf[pos + 4] <= 0x0E) && (buf[pos + 4] > 0x00) && (r > 200 &&  g > 200 && b > 200)) ? 0xFF : buf[pos + 4]);
-
-    }
-}
-
-static inline int findObject(int id, PgsInfo *pgsInfo)
+uint64_t getCurrentTimeMs()
 {
-    for (int i = 0; i < pgsInfo->objectCount; i++) {
-        if (pgsInfo->objects[i].id == id)
-            return i;
-    }
-    return -1;
+  timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return static_cast<uint64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / (1000 * 1000);
 }
 
-static inline int findPalette(int id, PGSSubPalettes *palettes)
+}
+
+PgsParser::PgsParser(std::shared_ptr<DataSource> source)
 {
-    for (int i = 0; i < palettes->count; i++) {
-        if (palettes->palette[i].id == id)
-            return i;
-    }
-    return -1;
-}
+    SUBTITLE_LOGI("enter %s \n", __func__);
 
-static inline unsigned char readBitmap(unsigned char *buf, int size, PgsInfo *pgsInfo) {
-    SUBTITLE_LOGI("--readBitmap-- %d, %d\n", pgsInfo->imageWidth, pgsInfo->imageHeight);
-    int rleBytes;
-
-    // buf[1]: objectId, buf[2]: versionNum
-    pgsInfo->objectId = buf[1];
-    pgsInfo->versionNum = buf[2];
-    char continueFlag = buf[3];
-
-    if (continueFlag & 0x80) {
-        //first
-        int objectSize = (buf[4] << 16) | (buf[5] << 8) | (buf[6]);
-        pgsInfo->imageWidth = (buf[7] << 8) | (buf[8]);
-        pgsInfo->imageHeight = (buf[9] << 8) | (buf[10]);
-        SUBTITLE_LOGI("readBitmap values are %d,%d,%d\n", objectSize, pgsInfo->imageWidth, pgsInfo->imageHeight);
-
-        pgsInfo->rleBufSize = 0;
-        pgsInfo->rleReadOff = 0;
-        pgsInfo->rleBuf = (unsigned char *)malloc(objectSize);
-        if (pgsInfo->rleBuf) {
-            pgsInfo->rleBufSize = objectSize;
-        } else {
-            pgsInfo->rleBufSize = 0;
-            SUBTITLE_LOGI("readBitmap rleBufSize = 0 \n");
-            return -1;
-        }
-        rleBytes = size - 11;
-    } else {
-        //last
-        rleBytes = size - 4;
-    }
-
-    if ((pgsInfo->rleBuf) && ((pgsInfo->rleReadOff + rleBytes) <= pgsInfo->rleBufSize)) {
-        memcpy(pgsInfo->rleBuf + pgsInfo->rleReadOff, buf + size - rleBytes, rleBytes);
-        pgsInfo->rleReadOff += rleBytes;
-    }
-    return (continueFlag & 0x40);  //last, 0x40
-}
-
-static inline void save2BitmapFile(const char *filename, uint32_t *bitmap, int w, int h) {
-    FILE *f;
-    char fname[40];
-    snprintf(fname, sizeof(fname), "%s.ppm", filename);
-    f = fopen(fname, "w");
-    if (!f) {
-        perror(fname);
-        return;
-    }
-    fprintf(f, "P6\n" "%d %d\n" "%d\n", w, h, 255);
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            int v = bitmap[y * w + x];
-            putc((v >> 16) & 0xff, f);
-            putc((v >> 8) & 0xff, f);
-            putc((v >> 0) & 0xff, f);
-        }
-    }
-    fclose(f);
-}
-
-static inline int drawPixel2Result(int x, int y, unsigned pixel, PgsShowData *result) {
-    int lineSize = result->imageWidth*4;
-    char *buf = (char *)(result->resultBuf + lineSize*y + x*4);
-
-    if ((x >= result->imageWidth) || (y >= result->imageHeight)) {
-        return 0;
-    }
-    buf[0] = pixel >> 24;
-    buf[1] = (pixel >> 16) & 0xff;
-    buf[2] = (pixel >> 8) & 0xff;
-    buf[3] = pixel & 0xff;
-    return 0;
-}
-
-static inline void afRlebitmapRender(PgsShowData *showdata, PgsShowData *result, char mode) {
-    unsigned char *ptr = NULL;
-    unsigned char *endBuf = NULL;
-    int x, y, count;
-    unsigned char colorIndex;
-
-    if (showdata == NULL || showdata->rleBuf == NULL || showdata->palette == NULL) return;
-
-    ptr = showdata->rleBuf;
-    endBuf = showdata->rleBuf + showdata->rleBufSize;
-    showdata->renderHeight = 0;
-    y = 0;
-    while (y < showdata->imageHeight && ptr < endBuf) {
-        x = 0;
-        while ((x < showdata->imageWidth) && (ptr < endBuf)) {
-            if ((ptr + 1) >= endBuf) break;
-
-            if ((*ptr == 0) && (*(ptr + 1) == 0)) {
-                if (x > 0) {
-                    for (; x < showdata->imageWidth; x++) {
-                        drawPixel2Result(x, y, 0, result);
-                    }
-                }
-                ptr += 2;
-            } else if (*ptr) {
-                drawPixel2Result(x, y, mode ? showdata->palette[*ptr] : *ptr, result);
-                x++;
-                ptr++;
-            } else {
-                ptr++;
-                if (*ptr & 0x40) {
-                    if ((ptr + 2) >= endBuf) break;
-                    count = ((*ptr & 0x3f) << 8) | (*(ptr + 1));
-                    if (*ptr & 0x80) {
-                        if ((ptr + 2) >= endBuf) break;
-                        colorIndex = *(ptr + 2);
-                        ptr++;
-                    } else {
-                        colorIndex = 0;
-                    }
-                    ptr += 2;
-                } else {
-                    count = *ptr & 0x3f;
-                    if (*ptr & 0x80) {
-                        if ((ptr + 1) >= endBuf) break;
-                        colorIndex = *(ptr + 1);
-                        ptr++;
-                    } else {
-                        colorIndex = 0;
-                    }
-                    ptr++;
-                }
-                for (; count > 0; count--, x++) {
-                    drawPixel2Result(x, y, mode ? showdata->palette[colorIndex] : colorIndex, result);
-                }
-            }
-        }
-        y++;
-    }
-    showdata->renderHeight = y;
-}
-
-void PgsParser::checkDebug() {
-    //dump pgs subtitle bitmap
-    char value[PROPERTY_VALUE_MAX] = {0};
-    memset(value, 0, PROPERTY_VALUE_MAX);
-    property_get("vendor.subtitle.dump", value, "false");
-    if (!strcmp(value, "true")) {
-        mDumpSub = true;
-    } else {
-        mDumpSub = false;
-    }
-}
-
-PgsParser::PgsParser(std::shared_ptr<DataSource> source) {
     mDataSource = source;
     mParseType = TYPE_SUBTITLE_PGS;
-    mPgsEpgs = new PgsSubtitleEpgs();
-    mPgsEpgs->pgsInfo = new PgsInfo();
-    PGSFrameCount = 0;
+
     checkDebug();
 }
 
-PgsParser::~PgsParser() {
-    if (mPgsEpgs != nullptr) {
-        if (mPgsEpgs->pgsInfo !=nullptr) {
-            delete mPgsEpgs->pgsInfo;
+PgsParser::~PgsParser()
+{
+    SUBTITLE_LOGI("enter %s \n", __func__);
+    for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
+        auto object = findObject(mPgsContext.presentation.objects[i].id,
+                                 &mPgsContext.objects);
+        if (!object) {
+            continue;
         }
-        delete mPgsEpgs;
+
+        AVSubtitleRect* const rect = &mPgsContext.presentation.present_sub_rect[i];
+        if (rect->decodedRle) {
+            free(rect->decodedRle);
+        }
+        // rect->bitmap memory will be freed in de-constructor of AML_SPUVAR
     }
 }
 
-int PgsParser::parserOnePgs(std::shared_ptr<AML_SPUVAR> spu) {
-    int bufferSize = 0;
-    char filename[64];
-
-    bufferSize = (mPgsEpgs->showdata.imageWidth *
-                   mPgsEpgs->showdata.imageHeight * 4);
-    if (bufferSize <= 0)
-        return -1;
-    mPgsEpgs->showdata.resultBuf = (unsigned char *)malloc(bufferSize);
-    if (mPgsEpgs->showdata.resultBuf == NULL) {
-        SUBTITLE_LOGE("malloc pgs result buf failed \n");
-        return -1;
-    }
-    memset(mPgsEpgs->showdata.resultBuf, 0x0, bufferSize);
-    if (mState == SUB_STOP) {
-        return 0;
-    }
-    afRlebitmapRender(&(mPgsEpgs->showdata), &mPgsEpgs->showdata, 1);
-    if (mPgsEpgs->showdata.imageWidth == 1920 && mPgsEpgs->showdata.imageHeight == 1080) {
-        unsigned char *cutBuffer = (unsigned char *)malloc(bufferSize / 4);
-        if (cutBuffer != NULL) {
-            memset(cutBuffer, 0x0, bufferSize / 4);
-            memcpy(cutBuffer, mPgsEpgs->showdata.resultBuf+bufferSize*3/4, bufferSize/4);
-            free(mPgsEpgs->showdata.resultBuf);
-            mPgsEpgs->showdata.resultBuf = cutBuffer;
-            mPgsEpgs->showdata.imageHeight /= 4;
-        } else {
-            SUBTITLE_LOGI("malloc cut buffer failed \n ");
-        }
-    }
-    spu->subtitle_type = TYPE_SUBTITLE_PGS;
-    spu->spu_start_x = mPgsEpgs->showdata.x;
-    spu->spu_start_y = mPgsEpgs->showdata.y;
-    spu->spu_data = mPgsEpgs->showdata.resultBuf;
-    spu->spu_width = mPgsEpgs->showdata.imageWidth;
-    spu->spu_height = mPgsEpgs->showdata.imageHeight;
-    spu->spu_origin_display_w = mPgsEpgs->showdata.windowWidth;
-    spu->spu_origin_display_h = mPgsEpgs->showdata.windowHeight;
-    spu->pts = mPgsEpgs->showdata.pts;
-    spu->buffer_size = spu->spu_width * spu->spu_height * 4;
-    spu->objectSegmentId = mPgsEpgs->showdata.objectSegmentId;
-    if (spu->spu_start_x == 0) spu->spu_start_x = (spu->spu_origin_display_w - spu->spu_width) / 2; // SWPL-157056 When the offset of x is 0, place subtitles in the center.
-    if (spu->spu_start_y == 0) spu->spu_start_y = (spu->spu_origin_display_h - spu->spu_height); // SWPL-157056 When the y offset is 0, place subtitles tightly against the bottom.
-    if (spu->buffer_size > 0 && spu->spu_data != NULL) {
-        if (mDumpSub) {
-            snprintf(filename, sizeof(filename), "./data/subtitleDump/pgs_%lld_%d", spu->pts, spu->objectSegmentId);
-            save2BitmapFile(filename, (uint32_t *)spu->spu_data, spu->spu_width, spu->spu_height);
-        }
-        if (spu->spu_origin_display_w <= 0 || spu->spu_origin_display_h <= 0) {
-            if (mPgsEpgs->pgsInfo->width > 0 && mPgsEpgs->pgsInfo->height > 0) {
-                 spu->spu_origin_display_w = mPgsEpgs->pgsInfo->width;
-                 spu->spu_origin_display_h = mPgsEpgs->pgsInfo->height;
-
-            } else {
-                spu->spu_origin_display_w = VideoInfo::Instance()->getVideoWidth();
-                spu->spu_origin_display_h = VideoInfo::Instance()->getVideoHeight();
-            }
-        }
-
-        addDecodedItem(std::shared_ptr<AML_SPUVAR>(spu));
-    } else {
-        SUBTITLE_LOGI("spu buffer size %d, spu->spu_data %p\n", spu->buffer_size,spu->spu_data);
-        free(mPgsEpgs->showdata.resultBuf);
-    }
-    mPgsEpgs->showdata.resultBuf = NULL;
-    return 1;
-}
-
-int PgsParser::decode(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray, unsigned char *buf) {
-    unsigned char *curBuf = buf;
-    int size;
-    int startTime, endTime;
-    unsigned char type;
-    char filename[64];
-    PgsInfo *pgsInfo = mPgsEpgs->pgsInfo;
-    type = readTimeHeader(&curBuf, &size, &startTime, &endTime);
-    SUBTITLE_LOGI("enter type startTime:0x%x endTime:0x%x pts:0x%x\n", startTime, endTime, spuArray[0]->pts);
-    switch (type) {
-        case PRESENTATION_SEGMENT:     //subpicture header
-            SUBTITLE_LOGI("enter type PRESENTATION_SEGMENT PGSFrameCount:%d\n", PGSFrameCount);
-            readSubpictureHeader(curBuf - size, pgsInfo);
-            PGSFrameCount = 0;
-            PGSFrameCountMax = mPgsEpgs->pgsInfo->objectCount;
-            if (size == 0x13) {
-                SUBTITLE_LOGI("enter type 0x16,0x13\n");
-                //readSubpictureHeader(curBuf - size, pgsInfo);
-            } else if (size == 0xb) {
-                //clearSubpictureHeader
-                readWindowInfo(curBuf - size,pgsInfo);
-                for (int i = 0; i< MAX_OBJECT_REFS ;i++) {
-                    spuArray[i]->subtitle_type = TYPE_SUBTITLE_PGS;
-                    spuArray[i]->pts = startTime;
-                    if (spuArray[i]->spu_width != 0 && spuArray[i]->spu_height != 0) {
-                        if (mDumpSub) {
-                            snprintf(filename, sizeof(filename), "./data/subtitleDump/pgs%lld_%d", spuArray[i]->pts, i);
-                            save2BitmapFile(filename, (uint32_t *)spuArray[i]->spu_data, spuArray[i]->spu_width, spuArray[i]->spu_height);
-                        }
-                        if (spuArray[i]->spu_origin_display_w <= 0 || spuArray[i]->spu_origin_display_h <= 0) {
-                            spuArray[i]->spu_origin_display_w = VideoInfo::Instance()->getVideoWidth();
-                            spuArray[i]->spu_origin_display_h = VideoInfo::Instance()->getVideoHeight();
-                        }
-                        addDecodedItem(std::shared_ptr<AML_SPUVAR>(spuArray[i]));
-                    }
-                }
-            }
-            break;
-        case WINDOW_SEGMENT:      //window
-            SUBTITLE_LOGI("enter type WINDOW_SEGMENT \n");
-            if (size == 0xa) {
-                //SUBTITLE_LOGI("enter type 0x17, %d\n", read_pgs_byte);
-                //readWindowHeader(curBuf - size, pgsInfo);
-            }
-            break;
-        case PALETTE_SEGMENT:      //color table
-            SUBTITLE_LOGI("enter type PALETTE_SEGMENT \n");
-            readColorTable(curBuf - size, size, pgsInfo);
-            break;
-        case OBJECT_SEGMENT:      //bitmap
-            SUBTITLE_LOGI("enter type OBJECT_SEGMENT PGSFrameCount:%d\n", PGSFrameCount);
-            if (readBitmap(curBuf - size, size, pgsInfo)) {
-                SUBTITLE_LOGI("nwpushuai objectId:%d", pgsInfo->objectId);
-                int presentationSegmentObjectId = findObject(pgsInfo->objectId, pgsInfo);
-
-                if (presentationSegmentObjectId == -1) {
-                    SUBTITLE_LOGE("Segment id -1 invalid!");
-                    break;
-                }
-
-                if (mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x < 0 || mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x > mPgsEpgs->pgsInfo->width) {
-                    SUBTITLE_LOGI("fail x nwpushuai --OBJECT_SEGMENT-- y:%d height:%d imageHeight:%d \n", mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x, mPgsEpgs->pgsInfo->width, mPgsEpgs->pgsInfo->imageWidth);
-                    mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x = (mPgsEpgs->pgsInfo->width - mPgsEpgs->pgsInfo->imageWidth) / 2;
-                }
-
-                if (mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].y < 0 || mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].y > mPgsEpgs->pgsInfo->height) {
-                    SUBTITLE_LOGI("fail y nwpushuai --OBJECT_SEGMENT-- y:%d height:%d imageHeight:%d \n", mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].y, mPgsEpgs->pgsInfo->height, mPgsEpgs->pgsInfo->imageHeight);
-                    mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].y = mPgsEpgs->pgsInfo->height - mPgsEpgs->pgsInfo->imageHeight *2;
-                }
-
-                SUBTITLE_LOGI("nwpushuai success readBitmap x:%d y:%d width:%d height:%d windowWidthOffset:%d windowHeightOffset:%d windowWidth%d windowHeight:%d imageWidth:%d imageHeight:%d\n",
-                    mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x,
-                    mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].y,
-                    mPgsEpgs->pgsInfo->width,
-                    mPgsEpgs->pgsInfo->height,
-                    mPgsEpgs->pgsInfo->windowWidthOffset,
-                    mPgsEpgs->pgsInfo->windowHeightOffset,
-                    mPgsEpgs->pgsInfo->windowWidth,
-                    mPgsEpgs->pgsInfo->windowHeight,
-                    mPgsEpgs->pgsInfo->imageWidth,
-                    mPgsEpgs->pgsInfo->imageHeight
-                );
-                //render it
-                mPgsEpgs->showdata.x = mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].x;
-                mPgsEpgs->showdata.y = mPgsEpgs->pgsInfo->objects[presentationSegmentObjectId].y;
-                mPgsEpgs->showdata.width = mPgsEpgs->pgsInfo->width;
-                mPgsEpgs->showdata.height = mPgsEpgs->pgsInfo->height;
-                mPgsEpgs->showdata.windowWidthOffset = mPgsEpgs->pgsInfo->windowWidthOffset;
-                mPgsEpgs->showdata.windowHeightOffset = mPgsEpgs->pgsInfo->windowHeightOffset;
-                mPgsEpgs->showdata.windowWidth = mPgsEpgs->pgsInfo->windowWidth;
-                mPgsEpgs->showdata.windowHeight = mPgsEpgs->pgsInfo->windowHeight;
-                mPgsEpgs->showdata.imageWidth = mPgsEpgs->pgsInfo->imageWidth;
-                mPgsEpgs->showdata.imageHeight = mPgsEpgs->pgsInfo->imageHeight;
-                mPgsEpgs->showdata.palette = mPgsEpgs->pgsInfo->palette;
-                mPgsEpgs->showdata.rleBuf = mPgsEpgs->pgsInfo->rleBuf;
-                mPgsEpgs->showdata.rleBufSize = mPgsEpgs->pgsInfo->rleBufSize;
-                mPgsEpgs->showdata.objectSegmentId = presentationSegmentObjectId;
-                SUBTITLE_LOGI("decoder pgs data to show objectSegmentId:%d\n", mPgsEpgs->showdata.objectSegmentId);
-                parserOnePgs(spuArray[PGSFrameCount++]);
-                if (pgsInfo->rleBuf) {
-                    free(pgsInfo->rleBuf);
-                    pgsInfo->rleBuf = NULL;
-                }
-            }
-            /*if (mPgsEpgs->pgsInfo->objectCount < MAX_OBJECT_REFS) {
-                for (int i= MAX_OBJECT_REFS-1; i>= mPgsEpgs->pgsInfo->objectCount ; i--) {
-                    SUBTITLE_LOGI("MAX_OBJECT_REFS objectSegmentId:%d\n", i);
-                    spuArray[i]->objectSegmentId = i;
-                    spuArray[i]->spu_data = NULL;
-                    addDecodedItem(std::shared_ptr<AML_SPUVAR>(spuArray[i]));
-                }
-            }*/
-            break;
-        case DISPLAY_SEGMENT:      //trailer
-            SUBTITLE_LOGI("enter type DISPLAY_SEGMENT, PGSFrameCount:%d\n", PGSFrameCount);
-            PGSFrameCount = 0;
-            break;
-        default:
-            break;
-    }
-    return 0;
-}
-
-int PgsParser::getSpu(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray) {
-    char tmpbuf[256];
-    int64_t packetHeader = 0;
-    //read_pgs_byte = 0;
-    if (mPgsEpgs->pgsInfo == NULL) {
-        SUBTITLE_LOGI("pgsInfo is NULL \n");
-        return 0;
-    }
-
-    if (mState == SUB_INIT) {
-        mState = SUB_PLAYING;
-    } else if (mState == SUB_STOP) {
-        SUBTITLE_LOGI(" subtitle_status == SUB_STOP \n\n");
-        return 0;
-    }
-
-
-    packetHeader = 0;
-    //uVobSPU.spu_cache_pos = 0;
-    while (mDataSource->read(tmpbuf, 1) == 1)  {
-        if (mState == SUB_STOP)
-            return 0;
-
-        packetHeader = ((packetHeader<<8) & 0x000000ffffffffff) | tmpbuf[0];
-        SUBTITLE_LOGI("## get_dvb_spu %x, %llx,-------------\n",tmpbuf[0], packetHeader);
-
-        if ((packetHeader & 0xffffffff) == 0x000001bd) {
-            SUBTITLE_LOGI("## 222  get_dvb_teletext_spu hardware demux dvb %x,%llx,-----------\n",
-                    tmpbuf[0], packetHeader & 0xffffffffff);
-            return hwDemuxParse(spuArray);
-        } else if (((packetHeader & 0xffffffffff)>>8) == AML_PARSER_SYNC_WORD
-                && (((packetHeader & 0xff)== 0x77) || ((packetHeader & 0xff)==0xaa))) {
-            SUBTITLE_LOGI("## 222  get_dvb_teletext_spu soft demux dvb %x,%llx,-----------\n",
-                    tmpbuf[0], packetHeader & 0xffffffffff);
-            return softDemuxParse(spuArray);
-        } else {
-            SUBTITLE_LOGE("dvb package header error: %x, %llx",tmpbuf[0], packetHeader);
-        }
-    }
-
-    return 0;
-}
-
-int PgsParser::softDemuxParse(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray) {
-    char tmpbuf[256];
-    int64_t pts = 0, dts = 0, ptsEnd = 0;
-    int packetLen = 0;
-    int ret = 0;
-
-    int readDataLen = 0, dataLen = 0;
-    int packetType = 0;
-    char *data = NULL;
-    char *pdata = NULL;
-    if (mDataSource->read(tmpbuf, 19) == 19) {
-        dataLen = subPeekAsInt32(tmpbuf + 3);
-        pts = subPeekAsInt64(tmpbuf + 7);
-        for (int i = 0; i< MAX_OBJECT_REFS ;i++) {
-            spuArray[i]->m_delay = subPeekAsInt32(tmpbuf + 15);
-            if (spuArray[i]->m_delay == 0) {
-                spuArray[i]->m_delay = pts + (DEFAULT_DELAY_TIME * 1000 * DEFAULT_DVB_TIME_MULTI);
-            }
-            dts = pts;
-            spuArray[i]->subtitle_type = TYPE_SUBTITLE_PGS;
-            spuArray[i]->pts = pts;
-        }
-        SUBTITLE_LOGI("## 4444 %x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,--%d,%llx,%llx,-------------\n",
-                tmpbuf[0], tmpbuf[1], tmpbuf[2], tmpbuf[3],
-                tmpbuf[4], tmpbuf[5], tmpbuf[6], tmpbuf[7],
-                tmpbuf[8], tmpbuf[9], tmpbuf[10], tmpbuf[11],
-                tmpbuf[12], tmpbuf[13], tmpbuf[14], dataLen, pts, ptsEnd);
-        data = (char *)calloc(1, dataLen);
-        int ret = mDataSource->read(data, dataLen);
-
-        SUBTITLE_LOGI("## ret=%d,dataLen=%d,%x,%x,%x,%x,%x,%x,%x,%x,---------\n",
-                ret, dataLen, data[0], data[1], data[2], data[3],
-                data[dataLen - 4], data[dataLen - 3], data[dataLen - 2], data[dataLen - 1]);
-        pdata = data;
-    }
-
-    while (readDataLen < dataLen) {
-        SUBTITLE_LOGI("## %x,%x,%x \n", data[0], data[1], data[2]);
-        packetType = data[0];
-        packetLen = (data[1] << 8) | data[2];
-        readDataLen += 3;
-        SUBTITLE_LOGI("## read:%d, dataLen:%d, len is %d\n", readDataLen, dataLen, packetLen);
-        if (readDataLen + packetLen > dataLen) {
-            SUBTITLE_LOGI("## data fault ! ---\n");
-            break;
-        }
-
-        if ((pts) && (packetLen > 0)) {
-            char *buf = NULL;
-            if ((8 + 2 + packetLen) > (OSD_HALF_SIZE * 4)) {
-                SUBTITLE_LOGE("pgs packet is too big\n\n");
-                break;
-            }
-            /*else if ((uVobSPU.spu_decoding_start_pos + 8 + 2 + packetLen) > (OSD_HALF_SIZE * 4)) {
-                uVobSPU.spu_decoding_start_pos = 0;
-            }*/
-
-            buf = (char *)malloc(8 + 2 + 3 + packetLen);
-            SUBTITLE_LOGI("packetLen is %d, %p\n", packetLen, buf);
-            mPgsEpgs->showdata.pts = dts;
-            if (mState == SUB_STOP) {
-                ret = 0;
-                if (buf)  free(buf);
-                return -1;
-            }
-
-            if (buf) {
-                SUBTITLE_LOGI("## 555 get_pgs_spu ------------\n");
-                memset(buf, 0x0,8 + 2 + 3 + packetLen);
-                buf[0] = 'P';
-                buf[1] = 'G';
-                buf[2] = (pts >> 24) & 0xff;
-                buf[3] = (pts >> 16) & 0xff;
-                buf[4] = (pts >> 8) & 0xff;
-                buf[5] = pts & 0xff;
-                buf[6] = (ptsEnd >> 24) & 0xff;
-                buf[7] = (ptsEnd >> 16) & 0xff;
-                buf[8] = (ptsEnd >> 8) & 0xff;
-                buf[9] = ptsEnd & 0xff;
-                buf[10] = packetType & 0xff, buf[11] =
-                        (packetLen >> 8) & 0xff,
-                        buf[12] = packetLen & 0xff;
-                memcpy(buf + 13, data + 3,
-                       packetLen);
-                SUBTITLE_LOGI("## start decode pgs subtitle %x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,%x,\n\n",
-                        buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-                        buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14]);
-                ret = decode(spuArray, (unsigned char *)buf);
-                readDataLen += packetLen;
-                data += packetLen + 3;
-                free(buf);
-                buf = NULL;
-            }
-        }
-    }
-
-    for (int i = 0; i< MAX_OBJECT_REFS ;i++) {
-        SUBTITLE_LOGI("## break, get_pgs_spu readDataLen=%d,dataLen=%d,spuArray[%d]->spu_data=%p\n",
-            readDataLen, dataLen, i, spuArray[i]->spu_data);
-    }
-    if (pdata) free(pdata);
-
-    return 0;
-}
-int PgsParser::hwDemuxParse(std::vector<std::shared_ptr<AML_SPUVAR>> spuArray) {
-    char tmpbuf[256];
-    int64_t pts = 0, dts = 0;
-    int64_t tmpPts, tmpDts;
-    int packetLen = 0, pesHeaderLen = 0;
-    bool needSkipPkt = true;
-    //read_pgs_byte = 0;
-    SUBTITLE_LOGI("enter get_pgs_spu\n");
-    int ret = 0;
-
-    if (mDataSource->read(tmpbuf, 2) == 2) {
-        packetLen = (tmpbuf[0] << 8) | tmpbuf[1];
-
-        if (packetLen >= 3) {
-            if (mDataSource->read(tmpbuf, 3) == 3) {
-                packetLen -= 3;
-                pesHeaderLen = tmpbuf[2];
-                if (packetLen >= pesHeaderLen) {
-                    if ((tmpbuf[1] & 0xc0) == 0x80) {
-                        needSkipPkt = false;
-                        if (mDataSource->read(tmpbuf, pesHeaderLen) == pesHeaderLen) {
-                            tmpPts = (int64_t)(tmpbuf[0] & 0xe) << 29;
-                            tmpPts = tmpPts | ((tmpbuf[1] & 0xff) << 22);
-                            tmpPts = tmpPts | ((tmpbuf[2] & 0xfe) << 14);
-                            tmpPts = tmpPts | ((tmpbuf[3] & 0xff) << 7);
-                            tmpPts = tmpPts | ((tmpbuf[4] & 0xfe) >> 1);
-                            pts = tmpPts; // - pts_aligned;
-                            packetLen -= pesHeaderLen;
-                        }
-                    } else if ((tmpbuf[1] & 0xc0) == 0xc0) {
-                        needSkipPkt = false;
-                        if (mDataSource->read(tmpbuf, pesHeaderLen) == pesHeaderLen) {
-                            tmpPts =  (int64_t)(tmpbuf[0] & 0xe) << 29;
-                            tmpPts = tmpPts | ((tmpbuf[1] & 0xff) << 22);
-                            tmpPts = tmpPts | ((tmpbuf[2] & 0xfe) << 14);
-                            tmpPts = tmpPts | ((tmpbuf[3] & 0xff) << 7);
-                            tmpPts = tmpPts | ((tmpbuf[4] & 0xfe) >> 1);
-                            pts = tmpPts; //- pts_aligned;
-                            tmpDts = (int64_t)(tmpbuf[5] & 0xe) << 29;
-                            tmpDts = tmpDts | ((tmpbuf[6] & 0xff) << 22);
-                            tmpDts = tmpDts | ((tmpbuf[7] & 0xfe) << 14);
-                            tmpDts = tmpDts | ((tmpbuf[8] & 0xff) << 7);
-                            tmpDts = tmpDts | ((tmpbuf[9] & 0xfe) >> 1);
-                            dts = tmpDts; // - pts_aligned;
-                            packetLen -= pesHeaderLen;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (needSkipPkt) {
-            char tmp;
-            for (int iii = 0; iii < packetLen; iii++) {
-                if (mDataSource->read(&tmp, 1) == 0) break;
-            }
-        } else if ((pts) && (packetLen > 0)) {
-            char *buf = NULL;
-            if ((8 + 2 + packetLen) > (OSD_HALF_SIZE * 4)) {
-                SUBTITLE_LOGE("pgs packet is too big\n\n");
-                return -1;
-            /*} else if ((uVobSPU.spu_decoding_start_pos + 8 + 2 + packetLen) > (OSD_HALF_SIZE * 4)) {
-                uVobSPU.spu_decoding_start_pos =0;*/
-            }
-            buf = (char *)malloc(8 + 2 + packetLen);
-            SUBTITLE_LOGI("packetLen is %d\n",packetLen);
-            mPgsEpgs->showdata.pts = dts;
-            if (mDataSource->availableDataSize() < packetLen || mState == SUB_STOP) {
-                ret = 0;
-                if (buf) free(buf);
-                return 0;
-            }
-
-            if (buf) {
-                memset(buf, 0x0,8 + 2 +packetLen);
-                buf[0] = 'P';
-                buf[1] = 'G';
-                buf[2] = (pts >> 24) & 0xff;
-                buf[3] = (pts >> 16) & 0xff;
-                buf[4] = (pts >> 8) & 0xff;
-                buf[5] = pts & 0xff;
-                buf[6] = (pts >> 24) & 0xff;
-                buf[7] = (pts >> 16) & 0xff;
-                buf[8] = (pts >> 8) & 0xff;
-                buf[9] = pts & 0xff;
-                if (mDataSource->read(buf + 10, packetLen) == packetLen) {
-                    SUBTITLE_LOGI("start decode pgs subtitle\n\n");
-                    ret = decode(spuArray, (unsigned char *)buf);
-                }
-                free(buf);
-                buf = NULL;
-            }
-            if (ret == 1) return ret;
-        }
-    }
-
-    return 0;
-}
-
-int PgsParser::getInterSpu() {
-    std::vector<std::shared_ptr<AML_SPUVAR>> spuArray;
-    for (int i = 0; i< MAX_OBJECT_REFS ;i++) {
-        spuArray.push_back(std::make_shared<AML_SPUVAR>());
-        spuArray[i]->sync_bytes = AML_PARSER_SYNC_WORD;
-    }
-    return getSpu(spuArray);
-}
-
-
-int PgsParser::parse() {
+// Parser interfaces
+// =====================
+int PgsParser::parse()
+{
     while (!mThreadExitRequested) {
-        if (getInterSpu() < 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(83));
+        readDataSource();
+        if (mMaxSpuItems > 10 && mDecodedSpu.size() >= mMaxSpuItems/2) {
+            // 30ms is about 2 frames in 60 fps
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
         }
     }
-
     return 0;
 }
 
-void PgsParser::dump(int fd, const char *prefix) {
+void PgsParser::dump(int fd, const char *prefix)
+{
     dprintf(fd, "%s PGS Parser\n", prefix);
     dumpCommon(fd, prefix);
 
-    dprintf(fd, "\n%s   PgsInfo: %p\n", prefix, mPgsEpgs->pgsInfo);
-    if (mPgsEpgs->pgsInfo != nullptr) {
-        PgsInfo *pgs = mPgsEpgs->pgsInfo;
-        dprintf(fd, "%s     startTime:%d endTime:%d\n", prefix, pgs->startTime, pgs->endTime);
-        dprintf(fd, "%s     w:%d h:%d\n", prefix, pgs->width, pgs->height);
-        dprintf(fd, "%s     fpsCode:%d\n", prefix, pgs->fpsCode);
-        dprintf(fd, "%s     objectCount:%d\n", prefix, pgs->objectCount);
-        dprintf(fd, "%s     objectCount:%d\n", prefix, pgs->objectCount);
+    dprintf(fd, "%s     startTime   = %" PRId64 ", endTime = 0\n", prefix,
+            mPgsContext.presentation.pts);
+    dprintf(fd, "%s     objectCount = %d\n", prefix,
+            mPgsContext.presentation.object_count);
+    dprintf(fd, "%s     id_number   = %d\n", prefix,
+            mPgsContext.presentation.id_number);
+    dprintf(fd, "%s     palette_id  = %d\n", prefix,
+            mPgsContext.presentation.palette_id);
+    dprintf(fd, "%s     videoW = %d, videoH = %d\n", prefix,
+            mPgsContext.presentation.videoWidth,
+            mPgsContext.presentation.videoHeight);
 
-        dprintf(fd, "%s     state:%d\n", prefix, pgs->state);
-        dprintf(fd, "%s     paletteUpdateFlag:%d\n", prefix, pgs->paletteUpdateFlag);
-        dprintf(fd, "%s     paletteIdRef:%d\n", prefix, pgs->paletteIdRef);
-        dprintf(fd, "%s     number:%d\n", prefix, pgs->number);
-
-        dprintf(fd, "%s     window Offset(x:%d y:%d)\n", prefix, pgs->windowWidthOffset, pgs->windowHeightOffset);
-        dprintf(fd, "%s     window(w:%d h:%d)\n", prefix, pgs->windowWidth, pgs->windowHeight);
-
-        dprintf(fd, "%s     rleBufferSize(%d)\n", prefix, pgs->rleBufSize);
-        dprintf(fd, "%s     palette:\n%s       ", prefix, prefix);
-        for (int i= 0; i< 0x100; i++) {
-            dprintf(fd, "%08x ", pgs->palette[i]);
-            if (i%8 == 7) {
-                dprintf(fd, "\n%s       ", prefix);
-            }
+    for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
+        auto object = findObject(mPgsContext.presentation.objects[i].id,
+                                 &mPgsContext.objects);
+        if (!object) {
+            continue;
         }
-        dprintf(fd, "\n");
+        auto rect = &mPgsContext.presentation.present_sub_rect[i];
+        dprintf(fd, "\n%s Presentation_Image_%d:\n", prefix, i);
+        dprintf(fd, "%s     object_segment_id = %d\n", prefix, rect->object_segment_id);
+        dprintf(fd, "%s     decodedRle_size   = %d\n", prefix, rect->decodedRleSize);
+        dprintf(fd, "%s     bitmap_size       = %d\n", prefix, rect->bitmapSize);
+        dprintf(fd, "%s     is_forced_display = %s\n", prefix,
+                rect->is_forced_display ? "true" : "false");
+        dprintf(fd, "%s     rect: x = %d y = %d w = %d h = %d\n", prefix,
+                rect->x, rect->y, rect->w, rect->h);
     }
-
-    dprintf(fd, "\n%s   ShowData:\n", prefix);
-    dprintf(fd, "%s     x:%d y:%d w:%d h:%d\n", prefix,
-        mPgsEpgs->showdata.x, mPgsEpgs->showdata.y, mPgsEpgs->showdata.width, mPgsEpgs->showdata.height);
-    dprintf(fd, "%s     window Offset(x:%d y:%d)\n", prefix,
-        mPgsEpgs->showdata.windowWidthOffset, mPgsEpgs->showdata.windowWidthOffset);
-    dprintf(fd, "%s     window(w:%d h:%d)\n", prefix, mPgsEpgs->showdata.windowWidth, mPgsEpgs->showdata.windowHeight);
-
-    dprintf(fd, "%s     image(w:%d h:%d)\n", prefix, mPgsEpgs->showdata.imageWidth, mPgsEpgs->showdata.imageHeight);
+    dprintf(fd, "-------------------------------------------------------------\n");
 }
 
 
+// Private functions
+// =====================
+void PgsParser::checkDebug()
+{
+#ifdef NEED_DUMP_ANDROID
+        char value[PROPERTY_VALUE_MAX] = {0};
+        property_get("vendor.subtitle.dump", value, "false");
+        mDumpSub = strcmp(value, "true") == 0;
+#endif
+}
 
+int PgsParser::readDataSource()
+{
+    mState = SUB_PLAYING;
+
+    uint8_t buf = 0;
+    uint64_t packetHeader = 0;
+    while (mDataSource->read(&buf, 1) == 1)  {
+        if (mState == SUB_STOP) {
+            return 0;
+        }
+
+        packetHeader = ((packetHeader << 8) & 0x000000ffffffffff) | buf;
+
+        // PES from demuxer
+        if ((packetHeader & 0xffffffff) == 0x000001bd) {
+            hwDemuxParser();
+            return 0;
+        }
+
+        // From amnuplayer
+        // Please read AmSubtitle::sendToSubtitleService() in amnuplayer for details:
+        //     - The total size is 20, read 5 bytes here
+        //     - SoftDemuxParse should read only 20-5 bytes for the header
+        int syncWord = (packetHeader & 0xffffffffff) >> 8;
+        uint8_t syncType = packetHeader & 0xff;
+        if (syncWord == AML_PARSER_SYNC_WORD
+            && (syncType == 0x77 || syncType == 0xaa)) {
+            softDemuxParser();
+            return 0;
+        }
+    }
+    return -1;
+}
+
+void PgsParser::softDemuxParser()
+{
+    SUBTITLE_LOGI("enter %s \n", __func__);
+
+    // 1. Read the header data, please see branch p-amlogic in
+    // repo av-restricted/platform/vendor/amnuplayer
+    static const int HEADER_LENGTH = 19;
+    char header[HEADER_LENGTH] = {0};
+    if (mDataSource->read(header, HEADER_LENGTH) != HEADER_LENGTH) {
+        SUBTITLE_LOGE("%s: fail to read header\n", __func__);
+        return;
+    }
+
+    // DEBUG_NEED: Leave the following log print here for checking amnuplayer's
+    // data structure
+    /*
+    for (auto i = 0; i < 19; ++i) {
+        SUBTITLE_LOGI("%d: 0x%0X\n", i, header[i]);
+    }
+    */
+
+    auto dataLen = subPeekAsUint32(header + 3);
+    auto pts = subPeekAsUint64(header + 7);
+    if (pts == 0) {
+        SUBTITLE_LOGE("%s: get zero pts\n", __func__);
+        return;
+    }
+
+    // The unit of duration is: duration = ms*90
+    auto duration = subPeekAsUint32(header + 15);
+
+    SUBTITLE_LOGI("%s: dataLen=%d, pts=%" PRId64 ", duration=%d\n",
+                  __func__, dataLen, pts, duration);
+
+    // 2. Read the packet data
+    auto dataBuff = std::vector<uint8_t>(dataLen);
+    if (mDataSource->read(dataBuff.data(), dataLen) != dataLen) {
+        SUBTITLE_LOGE("%s: fail to read data\n", __func__);
+        return;
+    }
+
+    auto buff = const_cast<const uint8_t*>(dataBuff.data());
+
+    auto buff_end = buff + dataLen;
+    while (buff < buff_end) {
+        if (mState == SUB_STOP) {
+            return;
+        }
+
+        auto packetType = bytestream_get_byte(&buff);
+        auto packetLen  = bytestream_get_be16(&buff);
+        if (packetLen == 0 && packetType != 0x80) {
+            SUBTITLE_LOGE("%s: get zero packetLen\n", __func__);
+            return;
+        }
+        if (buff + packetLen > buff_end) {
+            SUBTITLE_LOGE("%s: need more data, need %d(pgs packet len), but read %d",
+                          __func__, packetLen, static_cast<int>(buff_end - buff));
+            break;
+        }
+
+        // "PG" + pts + dts + segment type + segment size
+        auto pgsHeaderSize = 2 + 8 + 1 + 2;
+        auto pgsPacketSize = pgsHeaderSize + packetLen;
+        // NOTE: this check comes from old PGS parser as some memory issue,
+        // which is used for all subtitle parsers
+        if (pgsPacketSize > OSD_HALF_SIZE*4) {
+            SUBTITLE_LOGE("%s: PGS packet is too big: packetLen(%d) > max(%d)\n",
+                          __func__, packetLen, OSD_HALF_SIZE*4);
+            return;
+        }
+
+        std::vector<uint8_t> pgsPacketData;
+        pgsPacketData.reserve(pgsPacketSize);
+        pgsPacketData.push_back('P');
+        pgsPacketData.push_back('G');
+        // pts
+        pgsPacketData.push_back(0xFF & (pts >> 24));
+        pgsPacketData.push_back(0xFF & (pts >> 16));
+        pgsPacketData.push_back(0xFF & (pts >> 8));
+        pgsPacketData.push_back(0xFF & pts);
+        // dts
+        pgsPacketData.push_back(0);
+        pgsPacketData.push_back(0);
+        pgsPacketData.push_back(0);
+        pgsPacketData.push_back(0);
+        // segment type
+        pgsPacketData.push_back(0xFF & packetType);
+        // segment size
+        pgsPacketData.push_back(0xFF & (packetLen >> 8));
+        pgsPacketData.push_back(0xFF & packetLen);
+
+        pgsPacketData.insert(pgsPacketData.end(), buff, buff + packetLen);
+        buff += packetLen;
+
+        decode(pgsPacketData, duration);
+    }
+}
+
+// TODO: PES demux parser is not used by now, implement it for future extension.
+void PgsParser::hwDemuxParser()
+{
+    SUBTITLE_LOGI("enter %s \n", __func__);
+
+    uint8_t dataLen[2] = {0};
+    if (mDataSource->read(dataLen, 2) != 2) {
+        SUBTITLE_LOGE("%s: fail to read packet length\n", __func__);
+        return;
+    }
+    const uint8_t* dataBuff = dataLen;
+    auto packetLen = bytestream_get_be16(&dataBuff);
+    if (packetLen < 3) {
+        SUBTITLE_LOGE("%s: packet size is <3\n", __func__);
+        return;
+    }
+    char header[3] = {0};
+    if (mDataSource->read(header, 3) != 3) {
+        SUBTITLE_LOGE("%s: fail to read header\n", __func__);
+        return;
+    }
+    packetLen -= 3;
+    auto pesHeaderLen = header[2];
+    if (packetLen < pesHeaderLen) {
+        SUBTITLE_LOGE("%s: packet size %d < pes len %d \n",
+              __func__, packetLen, pesHeaderLen);
+        return;
+    }
+
+    bool needSkipPkt = true;
+    int64_t pts = 0, dts = 0;
+    auto tag = header[1] & 0xc0;
+    if (tag == 0x80 || tag == 0xc0) {
+        needSkipPkt = false;
+        auto pesHeader = std::vector<char>(pesHeaderLen);
+        if (mDataSource->read(pesHeader.data(), pesHeaderLen) != pesHeaderLen) {
+            SUBTITLE_LOGE("%s: fail to read pes header\n", __func__);
+            return;
+        }
+        auto pesBuff = pesHeader.data();
+        pts = (int64_t)(pesBuff[0] & 0xe) << 29;
+        pts = pts | ((int64_t)(pesBuff[1] & 0xff) << 22);
+        pts = pts | ((int64_t)(pesBuff[2] & 0xfe) << 14);
+        pts = pts | ((int64_t)(pesBuff[3] & 0xff) << 7);
+        pts = pts | ((int64_t)(pesBuff[4] & 0xfe) >> 1);
+        packetLen -= pesHeaderLen;
+        if (tag == 0xc0) {
+            dts = (int64_t)(pesBuff[0] & 0xe) << 29;
+            dts = dts | ((int64_t)(pesBuff[1] & 0xff) << 22);
+            dts = dts | ((int64_t)(pesBuff[2] & 0xfe) << 14);
+            dts = dts | ((int64_t)(pesBuff[3] & 0xff) << 7);
+            dts = dts | ((int64_t)(pesBuff[4] & 0xfe) >> 1);
+            packetLen -= 5;
+        }
+    }
+
+    if (needSkipPkt) {
+        char tmp;
+        for (auto i = 0; i < packetLen; ++i) {
+            if (mDataSource->read(&tmp, 1) == 0) break;
+        }
+        return;
+    }
+
+    if (pts == 0 || packetLen <= 0) {
+        SUBTITLE_LOGE("%s: get zero pts or no data\n", __func__);
+        return;
+    }
+
+    // "PG" + pts + dts
+    // segment type + segment size are included in next reading.
+    auto pgsHeaderSize = 2 + 8;
+    auto pgsPacketSize = pgsHeaderSize + packetLen;
+    if (mDataSource->availableDataSize() < packetLen || mState == SUB_STOP) {
+        SUBTITLE_LOGI("%s: stopped or no enough data\n", __func__);
+        return;
+    }
+
+    std::vector<uint8_t> pgsPacketData;
+    pgsPacketData.reserve(pgsPacketSize);
+    pgsPacketData.push_back('P');
+    pgsPacketData.push_back('G');
+    // pts
+    pgsPacketData.push_back(0xFF & (pts >> 24));
+    pgsPacketData.push_back(0xFF & (pts >> 16));
+    pgsPacketData.push_back(0xFF & (pts >> 8));
+    pgsPacketData.push_back(0xFF & pts);
+    // dts
+    pgsPacketData.push_back(0xFF & (dts >> 24));
+    pgsPacketData.push_back(0xFF & (dts >> 16));
+    pgsPacketData.push_back(0xFF & (dts >> 8));
+    pgsPacketData.push_back(0xFF & dts);
+
+    // segment type + segment size are included in this reading.
+    if (mDataSource->read(pgsPacketData.data() + pgsHeaderSize, packetLen) != packetLen) {
+        SUBTITLE_LOGE("%s: fail to read data\n", __func__);
+        return;
+    }
+
+    decode(pgsPacketData, 0);
+}
+
+void PgsParser::decode(const std::vector<uint8_t>& pgsPacket, int duration)
+{
+    auto buf = const_cast<const uint8_t*>(pgsPacket.data());
+    auto buf_size = pgsPacket.size();
+    // The buffer can't be nullptr and the length must be more than 3 as the logic.
+    assert(buf && buf_size > 3);
+
+    auto buf_end = buf + buf_size;
+    while (buf < buf_end) {
+        // Skip "PG"
+        buf += 2;
+
+        int pts = bytestream_get_be32(&buf);
+
+        // Prepare log time
+        int pts_ms = pts / DEFAULT_DVB_TIME_MULTI;
+        // Set the first pts at first or after seeking
+        if (mFirstPtsMs == 0 || mFirstPtsMs > pts_ms) {
+            mFirstPtsMs = pts_ms;
+        }
+        int ms_from_first_pts = pts_ms - mFirstPtsMs;
+
+        int ms = pts_ms % 1000;
+        int second = pts_ms / 1000 % 60;
+        int minute = pts_ms / 1000 / 60 % 60;
+        int hour = pts_ms / 1000 / 60 / 60;
+        // log PTS time
+        std::string log_pts = "[" + std::to_string(pts) + "]" + "["
+            + int2StrWithLen(hour, 2) + ":" + int2StrWithLen(minute, 2)
+            + ":" + int2StrWithLen(second, 2) + "." + int2StrWithLen(ms, 3) + "]";
+        // log duration from the first PTS
+        log_pts += ("[" + int2StrWithLen(ms_from_first_pts/1000, 4) + "."
+            + int2StrWithLen(abs(ms_from_first_pts)%1000, 3) + " s]");
+
+        int dts = bytestream_get_be32(&buf);
+        uint8_t segment_type = bytestream_get_byte(&buf);
+        int segment_length = bytestream_get_be16(&buf);
+
+        // softDemuxParse and hwDemuxParse already be sure the data is health.
+        assert(buf + segment_length == buf_end);
+        switch (segment_type) {
+        case PRESENTATION_COMPOSITION_SEGMENT: // 1 PCS = 0x16
+        {
+            SUBTITLE_LOGI("%s_sequence_start: pts=%d", __func__, pts);
+            mDecodeSequenceTracker = "[ 1_PCS --> ";
+            mPgsContext.presentation.pts = pts;
+            parsePresentationSegment(buf, segment_length);
+            break;
+        }
+        case WINDOW_DEFINITION_SEGMENT: // 2 WDS = 0x17
+        {
+             mDecodeSequenceTracker += "2_WDS --> ";
+             /*
+             * Window Segment Structure (No new information provided):
+             *     2 bytes: Unknown,
+             *     2 bytes: X position of subtitle,
+             *     2 bytes: Y position of subtitle,
+             *     2 bytes: Width of subtitle,
+             *     2 bytes: Height of subtitle.
+             */
+            break;
+        }
+        case PALETTE_DEFINITION_SEGMENT: // 3 PDS = 0x14
+        {
+            mDecodeSequenceTracker += "3_PDS --> ";
+            parsePaletteSegment(buf, segment_length);
+            break;
+        }
+        case OBJECT_DEFINITION_SEGMENT: // 4 ODS = 0x15
+        {
+            auto objectId = parseObjectSegment(buf, segment_length);
+            mDecodeSequenceTracker += ("4_ODS(" + std::to_string(objectId) + ") --> ");
+            break;
+        }
+        case END_DISPLAY_SEGMENT: // 5 END = 0x80
+        {
+            mDecodeSequenceTracker += "5_END ]";
+            mCurrentTimeMs = getCurrentTimeMs();
+            handleDisplayEndSegment();
+            uint64_t spendTimeMs = getCurrentTimeMs() - mCurrentTimeMs;
+            if (spendTimeMs > 50) {
+               SUBTITLE_LOGI("%s_sequence_long_time: END_DISPLAY_SEGMENT spend %" PRIu64 " ms",
+                             __func__, spendTimeMs);
+            }
+            postDecodedItem(duration);
+            break;
+        }
+        default: {
+            SUBTITLE_LOGE("%s_sequence: Unknown subtitle segment type 0x%x, length %d\n",
+                          __func__, segment_type, segment_length);
+            break;
+        }
+        }
+        std::string log = log_pts + mDecodeSequenceTracker;
+        SUBTITLE_LOGI("%s_sequence: %s\n", __func__, log.c_str());
+        buf += segment_length;
+    }
+}
+
+// 1 PCS
+void PgsParser::parsePresentationSegment(const uint8_t* buf, int buf_size)
+{
+    assert(buf);
+    auto buf_end = buf + buf_size;
+
+    // Video descriptor
+    mPgsContext.presentation.videoWidth  = bytestream_get_be16(&buf);
+    mPgsContext.presentation.videoHeight = bytestream_get_be16(&buf);
+
+    // Skip Frame rate, which is always 0x10, can be ignored.
+    buf += 1;
+    mPgsContext.presentation.id_number = bytestream_get_be16(&buf);
+
+    /*
+     * state is a 2 bit field that defines pgs epoch boundaries
+     * 00 - Normal, previously defined objects and palettes are still valid
+     * 01 - Acquisition point, previous objects and palettes can be released
+     * 10 - Epoch start, previous objects and palettes can be released
+     * 11 - Epoch continue, previous objects and palettes can be released
+     *
+     * reserved 6 bits discarded
+     */
+    auto state = bytestream_get_byte(&buf) >> 6;
+    if (state != 0) {
+        flushPgsContext();
+    }
+
+    // skip palette_update_flag (0x80)
+    buf += 1;
+    mPgsContext.presentation.palette_id   = bytestream_get_byte(&buf);
+    mPgsContext.presentation.object_count = bytestream_get_byte(&buf);
+    // Sometimes there are no objects in PGS packet
+    SUBTITLE_LOGI("%s: videoW%d, videoH%d, id_number=%d, state=%d, palette_id=%d,"
+                  " object_count=%d\n",
+                  __func__,
+                  mPgsContext.presentation.videoWidth,
+                  mPgsContext.presentation.videoHeight,
+                  mPgsContext.presentation.id_number,
+                  state,
+                  mPgsContext.presentation.palette_id,
+                  mPgsContext.presentation.object_count);
+
+    if (mPgsContext.presentation.object_count > MAX_OBJECT_REFS) {
+        SUBTITLE_LOGE("%s: Invalid number of presentation objects %d\n", __func__,
+                      mPgsContext.presentation.object_count);
+        mPgsContext.presentation.object_count = 2;
+        return;
+    }
+
+    for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
+        PGSSubObjectRef *const object = &mPgsContext.presentation.objects[i];
+
+        if (buf_end - buf < 8) {
+            SUBTITLE_LOGE("%s: insufficient space for object\n", __func__);
+            mPgsContext.presentation.object_count = i;
+            return;
+        }
+
+        object->id               = bytestream_get_be16(&buf);
+        object->window_id        = bytestream_get_byte(&buf);
+        object->composition_flag = bytestream_get_byte(&buf);
+
+        object->x = bytestream_get_be16(&buf);
+        object->y = bytestream_get_be16(&buf);
+
+        // If cropping
+        if (object->composition_flag & 0x80) {
+            object->crop_x = bytestream_get_be16(&buf);
+            object->crop_y = bytestream_get_be16(&buf);
+            object->crop_w = bytestream_get_be16(&buf);
+            object->crop_h = bytestream_get_be16(&buf);
+        }
+        SUBTITLE_LOGI("%s_%d: objectId=%d, composition_flag=0x%02x, (x%d, y%d)\n",
+                      __func__, i, object->id,
+                      object->composition_flag, object->x, object->y);
+        if (object->x > mPgsContext.presentation.videoWidth
+            || object->y > mPgsContext.presentation.videoHeight) {
+            SUBTITLE_LOGE("%s: out of video bounds: subtitle(x%d, y%d), video(w%d, h%d)\n",
+                          __func__, object->x, object->y,
+                          mPgsContext.presentation.videoWidth,
+                          mPgsContext.presentation.videoHeight);
+            object->y = object->x = 0;
+            return;
+        }
+    }
+}
+
+// 3 PDS
+void PgsParser::parsePaletteSegment(const uint8_t* buf, int buf_size)
+{
+    assert(buf);
+    PGSSubPalette* palette;
+
+    auto buf_end = buf + buf_size;
+    const uint8_t* cm = ff_crop_tab + MAX_NEG_CROP;
+    int color_id;
+    int y, cb, cr, alpha;
+    int r, g, b, r_add, g_add, b_add;
+    int id;
+
+    id  = bytestream_get_byte(&buf);
+    palette = findPalette(id, &mPgsContext.palettes);
+    if (!palette) {
+        if (mPgsContext.palettes.count >= MAX_EPOCH_PALETTES) {
+            SUBTITLE_LOGE("%s: Too many palettes in epoch\n", __func__);
+            return;
+        }
+        palette = &mPgsContext.palettes.palette[mPgsContext.palettes.count++];
+        palette->id = id;
+    }
+
+    // Skip palette version
+    buf += 1;
+
+    while (buf < buf_end) {
+        color_id  = bytestream_get_byte(&buf);
+        y         = bytestream_get_byte(&buf);
+        cr        = bytestream_get_byte(&buf);
+        cb        = bytestream_get_byte(&buf);
+        alpha     = bytestream_get_byte(&buf);
+
+        // Default to BT.709 colorspace. In case of <= 576 height use BT.601
+        if (mPgsContext.presentation.videoHeight <= 0
+            || mPgsContext.presentation.videoHeight > 576) {
+            YUV_TO_RGB1_CCIR_BT709(cb, cr);
+        } else {
+            YUV_TO_RGB1_CCIR(cb, cr);
+        }
+        YUV_TO_RGB2_CCIR(r, g, b, y);
+
+        palette->argb[color_id] = ARGB(r, g, b, alpha);
+    }
+}
+
+// 4 ODS
+int PgsParser::parseObjectSegment(const uint8_t* buf, int buf_size)
+{
+    assert(buf);
+    if (buf_size <= 4) {
+        return -1;
+    }
+    buf_size -= 4;
+
+    int id = bytestream_get_be16(&buf);
+    auto object = findObject(id, &mPgsContext.objects);
+    if (!object) {
+        if (mPgsContext.objects.count >= MAX_EPOCH_OBJECTS) {
+            SUBTITLE_LOGE("%s: Too many objects in epoch\n", __func__);
+            return -1;
+        }
+        object = &mPgsContext.objects.object[mPgsContext.objects.count++];
+        object->id = id;
+    }
+
+    // skip object version number
+    buf += 1;
+
+    // Read the Sequence Description to determine if start of RLE data or
+    // appended to previous RLE
+    uint8_t sequence_desc = bytestream_get_byte(&buf);
+
+    if (!(sequence_desc & 0x80)) {
+        // Additional RLE data
+        if (buf_size > object->rle_remaining_len) {
+            SUBTITLE_LOGE("%s: buf_size %d > rle_remaining_len %d\n",
+                          __func__, buf_size, object->rle_remaining_len);
+            return -1;
+        }
+
+        object->rle.insert(object->rle.end(), buf, buf + buf_size);
+        object->rle_data_len += buf_size;
+        assert(object->rle.size() == object->rle_data_len);
+        object->rle_remaining_len -= buf_size;
+        return id;
+    }
+
+    if (buf_size <= 7) {
+        SUBTITLE_LOGE("%s: buf_size %d <= 7\n", __func__, buf_size);
+        return -1;
+    }
+    buf_size -= 7;
+
+    // decode rle bitmap length, stored size includes width/height data
+    unsigned int rle_bitmap_len = bytestream_get_be24(&buf) - 2*2;
+
+    if (buf_size > rle_bitmap_len) {
+        SUBTITLE_LOGE("%s: Buffer dimension %d larger than the expected RLE data %d\n",
+                      __func__, buf_size, rle_bitmap_len);
+        return -1;
+    }
+
+    // Get bitmap dimensions from data
+    unsigned int width  = bytestream_get_be16(&buf);
+    unsigned int height = bytestream_get_be16(&buf);
+
+    // Make sure the bitmap is not too large
+    if (mPgsContext.presentation.videoWidth < width
+        || mPgsContext.presentation.videoHeight < height
+        || !width || !height) {
+        SUBTITLE_LOGE("%s: Bitmap dimensions (%dx%d) invalid\n",
+                      __func__, width, height);
+        return -1;
+    }
+
+    object->w = width;
+    object->h = height;
+
+    object->rle.clear();
+    object->rle.insert(object->rle.begin(), buf, buf + buf_size);
+    object->rle_data_len = buf_size;
+    object->rle_remaining_len = rle_bitmap_len - buf_size;
+    return object->id;
+}
+
+// 5 END
+void PgsParser::handleDisplayEndSegment(    )
+{
+    auto palette = findPalette(mPgsContext.presentation.palette_id,
+                               &mPgsContext.palettes);
+    if (!palette) {
+        SUBTITLE_LOGE("%s: Invalid palette id %d\n", __func__,
+                      mPgsContext.presentation.palette_id);
+        return;
+    }
+
+    for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
+        auto object = findObject(mPgsContext.presentation.objects[i].id,
+                                 &mPgsContext.objects);
+        if (!object) {
+            SUBTITLE_LOGE("%s: Invalid object, objectId=%d\n", __func__,
+                          mPgsContext.presentation.objects[i].id);
+            continue;
+        }
+
+        AVSubtitleRect* const rect = &mPgsContext.presentation.present_sub_rect[i];
+        rect->x = mPgsContext.presentation.objects[i].x;
+        rect->y = mPgsContext.presentation.objects[i].y;
+        rect->is_valid = true;
+        if (object->rle.size() > 0) {
+            rect->w = object->w;
+            rect->h = object->h;
+
+            if (object->rle_remaining_len) {
+                SUBTITLE_LOGE("%s: RLE data length %u is %u bytes shorter than expected\n",
+                              __func__, object->rle_data_len, object->rle_remaining_len);
+                rect->is_valid = false;
+                return;
+            }
+
+            rect->decodedRleSize = rect->w * rect->h;
+            // The malloc should be freed after renderRle2Bitmap
+            rect->decodedRle = static_cast<uint8_t*>(malloc(rect->decodedRleSize));
+            if (!rect->decodedRle) {
+                ALOGE("%s: malloc error %m\n", __func__);
+                return;
+            }
+            auto ret = decodeRle(rect, object->rle);
+            if (!ret) {
+                rect->w = 0;
+                rect->h = 0;
+                rect->is_valid = false;
+                free(rect->decodedRle);
+                rect->decodedRle = nullptr;
+                rect->decodedRleSize = 0;
+                continue;
+            }
+        }
+
+        memcpy(&rect->palette, &palette->argb, 0x100 * sizeof(uint32_t));
+
+        // Must be called after palette is filled and rle is decoded
+        renderRle2Bitmap(rect);
+        free(rect->decodedRle);
+        rect->decodedRle = nullptr;
+        rect->decodedRleSize = 0;
+
+        rect->is_forced_display = \
+            (mPgsContext.presentation.objects[i].composition_flag & 0x40);
+        // NOTE: spu's object_segment_id is mapped to reference object id.
+        rect->object_segment_id = i;
+    }
+}
+
+bool PgsParser::decodeRle(AVSubtitleRect* rect, const std::vector<uint8_t>& rleData)
+{
+    assert(rect && !rleData.empty());
+
+    auto rle_buf = const_cast<const uint8_t*>(rleData.data());
+    auto rle_bitmap_end = rle_buf + rleData.size();
+
+    int pixel_count = 0;
+    int line_count  = 0;
+    while (rle_buf < rle_bitmap_end && line_count < rect->h) {
+        auto color = bytestream_get_byte(&rle_buf);
+        auto run   = 1;
+        if (color == 0x00) {
+            auto flags = bytestream_get_byte(&rle_buf);
+            run = flags & 0x3f;
+            if (flags & 0x40) {
+                run = (run << 8) + bytestream_get_byte(&rle_buf);
+            }
+            color = flags & 0x80 ? bytestream_get_byte(&rle_buf) : 0;
+        }
+
+        if (run > 0 && pixel_count + run <= rect->w * rect->h) {
+            memset(rect->decodedRle + pixel_count, color, run);
+            pixel_count += run;
+        }
+        else if (!run) {
+            // New Line. Check if correct pixels decoded, if not display warning
+            // and adjust bitmap pointer to correct new line position.
+            if (pixel_count % rect->w > 0) {
+                SUBTITLE_LOGE("%s: decoded %d pixels, when line should be %d pixels\n",
+                              __func__, pixel_count % rect->w, rect->w);
+                return false;
+            }
+            line_count++;
+        }
+    }
+
+    if (pixel_count < rect->w * rect->h) {
+        SUBTITLE_LOGE("%s: Insufficient RLE data for subtitle\n", __func__);
+        return false;
+    }
+    return true;
+}
+
+void PgsParser::renderRle2Bitmap(AVSubtitleRect* rect)
+{
+    assert(rect && rect->decodedRle);
+
+    rect->bitmapSize = 4 * rect->decodedRleSize;
+    // NOTE: The malloc will be freed in AML_SPUVAR's de-constructor after postDecodedItem
+    rect->bitmap = static_cast<uint8_t*>(malloc(rect->bitmapSize));
+    if (!rect->bitmap) {
+        ALOGE("%s: malloc error %m\n", __func__);
+        return;
+    }
+
+    auto j = 0;
+    for (auto i = 0; i < rect->decodedRleSize; ++i) {
+        // palette is uint32_t ARGB
+        auto argb = rect->palette[rect->decodedRle[i]];
+        rect->bitmap[j]     = (uint8_t)(argb & 0xFF);        // B
+        rect->bitmap[j + 1] = (uint8_t)(argb >> 8 & 0xFF);   // G
+        rect->bitmap[j + 2] = (uint8_t)(argb >> 16 & 0xFF);  // R
+        rect->bitmap[j + 3] = (uint8_t)(argb >> 24 & 0xFF);  // A
+        j += 4;
+    }
+}
+
+void PgsParser::postDecodedItem(int duration)
+{
+    if (mState == SUB_STOP) {
+        return;
+    }
+
+    auto pts = mPgsContext.presentation.pts;
+
+    // End Display Segment has 0 object and Composition State is 0x00, it means
+    // all objects should be cleared on the screen
+    if (mPgsContext.presentation.object_count < mPreviousObjectNum
+        || mPgsContext.presentation.object_count == 0) {
+        for (auto i = 0; i < MAX_OBJECT_REFS; ++i) {
+            SUBTITLE_LOGI("%s_end_display: objectId=%d, pts=%" PRId64 "(%" PRId64
+                          " ms), videoW%d, videoH%d, count %d(pre=%d)\n",
+                          __func__, i, pts, pts / DEFAULT_DVB_TIME_MULTI,
+                          mPgsContext.presentation.videoWidth,
+                          mPgsContext.presentation.videoHeight,
+                          mPgsContext.presentation.object_count,
+                          mPreviousObjectNum);
+
+            // 1. Make spu structure
+            std::shared_ptr<AML_SPUVAR> spu = std::make_shared<AML_SPUVAR>();
+            spu->subtitle_type = TYPE_SUBTITLE_PGS;
+            spu->spu_origin_display_w = mPgsContext.presentation.videoWidth;
+            spu->spu_origin_display_h = mPgsContext.presentation.videoHeight;
+            spu->pts = pts;
+            spu->m_delay = pts + duration;
+            spu->objectSegmentId = i;
+            spu->buffer_size = 0;
+
+            // 2. Post spu
+            Parser::addDecodedItem(spu);
+        }
+        mPreviousObjectNum = mPgsContext.presentation.object_count;
+        if (mPgsContext.presentation.object_count == 0) {
+            return;
+        }
+    }
+
+    mPreviousObjectNum = mPgsContext.presentation.object_count;
+    for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
+        auto object = findObject(mPgsContext.presentation.objects[i].id,
+                                 &mPgsContext.objects);
+        if (!object) {
+            SUBTITLE_LOGE("%s: Invalid objectId %d\n", __func__,
+                          mPgsContext.presentation.objects[i].id);
+            continue;
+        }
+
+        auto rect = &mPgsContext.presentation.present_sub_rect[i];
+        if (!rect->is_valid) {
+            // The error log was printed during parsing
+            continue;
+        }
+
+        SUBTITLE_LOGI("%s: index_%d/%d. objectId=%d, pts=%" PRId64 "(%" PRId64
+                      " ms), bitmap_bytes=%d(w%4d*h%-3d*4), (x%-3d, y%-3d), videoW%d,"
+                      " videoH%d, isValid=%d\n",
+                      __func__, i+1, mPgsContext.presentation.object_count,
+                      rect->object_segment_id, pts, pts / DEFAULT_DVB_TIME_MULTI,
+                      rect->bitmapSize, rect->w, rect->h, rect->x, rect->y,
+                      mPgsContext.presentation.videoWidth,
+                      mPgsContext.presentation.videoHeight,
+                      rect->is_valid);
+
+        // 1. Make spu structure
+        std::shared_ptr<AML_SPUVAR> spu = std::make_shared<AML_SPUVAR>();
+        spu->subtitle_type = TYPE_SUBTITLE_PGS;
+        spu->spu_start_x = rect->x;
+        spu->spu_start_y = rect->y;
+        spu->spu_width = rect->w;
+        spu->spu_height = rect->h;
+        spu->spu_origin_display_w = mPgsContext.presentation.videoWidth;
+        spu->spu_origin_display_h = mPgsContext.presentation.videoHeight;
+        spu->pts = pts;
+        spu->m_delay = pts + duration;
+        if (duration == 0) {
+            spu->m_delay = pts + DEFAULT_DURATION_SECOND * 1000 * DEFAULT_DVB_TIME_MULTI;
+        }
+        spu->objectSegmentId = rect->object_segment_id;
+        spu->buffer_size = rect->bitmapSize;
+
+        // Use malloc as architecture design, which will be freed in AML_SPUVAR.
+        spu->useMalloc = true;
+        spu->spu_data = rect->bitmap;
+
+        if (mDumpSub && rect->bitmap) {
+            save2BitmapFile(rect->bitmap, rect->bitmapSize, rect->w, rect->h,
+                            spu->pts, spu->objectSegmentId,
+                            mPgsContext.presentation.objects[i].id);
+        }
+
+        // 2. Post spu
+        Parser::addDecodedItem(spu);
+        rect->bitmap = nullptr;
+    }
+}
+
+void PgsParser::flushPgsContext()
+{
+    SUBTITLE_LOGI("enter %s \n", __func__);
+    for (auto i = 0; i < mPgsContext.objects.count; ++i) {
+        mPgsContext.objects.object[i].rle.clear();
+        mPgsContext.objects.object[i].rle_buffer_size = 0;
+        mPgsContext.objects.object[i].rle_remaining_len = 0;
+    }
+    mPgsContext.objects.count = 0;
+    mPgsContext.palettes.count = 0;
+}
+
+PgsParser::PGSSubObject* PgsParser::findObject(int id, PGSSubObjects* objects)
+{
+    for (auto i = 0; i < objects->count; ++i) {
+        if (objects->object[i].id == id) {
+            return &objects->object[i];
+        }
+    }
+    return nullptr;
+}
+
+PgsParser::PGSSubPalette* PgsParser::findPalette(int id, PGSSubPalettes* palettes)
+{
+    for (auto i = 0; i < palettes->count; ++i) {
+        if (palettes->palette[i].id == id) {
+            return &palettes->palette[i];
+        }
+    }
+    return nullptr;
+}
+
+void PgsParser::save2BitmapFile(uint8_t* bitmap, int size, int w, int h,
+                                       int64_t pts, int objectSegmentId, int objectId)
+{
+    if (!bitmap) {
+        SUBTITLE_LOGE("%s: null bitmap\n", __func__);
+        return;
+    }
+
+    char filename[128];
+    snprintf(filename, sizeof(filename),
+             "./data/subtitleDump/pgs_%" PRId64 "_%d_%d.ppm",
+             pts, objectSegmentId, objectId);
+
+    FILE* f = fopen(filename, "w");
+    if (!f) {
+        perror(filename);
+        return;
+    }
+
+    // ppm is formatted as RGB
+    fprintf(f, "P6\n" "%d %d\n" "%d\n", w, h, 255);
+    for (auto i = 0; i < size;) {
+        // bitmap is ARGB
+        putc(bitmap[i+2], f); // R
+        putc(bitmap[i+1], f); // G
+        putc(bitmap[i+0], f); // B
+        i += 4;
+    }
+    fclose(f);
+}

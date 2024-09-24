@@ -119,11 +119,6 @@ public:
     }
 
     bool startParser(ParserEventNotifier *notify, ParserSubdataNotifier *dataNofity) {
-        if (!this) {
-            SUBTITLE_LOGE("This is Null, startParser Error!");
-            return false;
-        }
-
         mState = SUB_INIT;
         mNotifier = notify;
         mDataNotifier = dataNofity;
@@ -181,12 +176,18 @@ public:
             return;
         }
         while (mDecodedSpu.size() >= mMaxSpuItems) {
+            auto item = mDecodedSpu.front();
+            if (item->spu_data == nullptr
+                && item->subtitle_type == TYPE_SUBTITLE_PGS) {
+                SUBTITLE_LOGE("%s: PGS end segment is deleted on spu with pts(%" PRId64
+                              ")\n", __func__, item->pts);
+            }
             mDecodedSpu.pop_front();
         }
 
         // validate the item: do not sent empty items due to parser error.
         if (item == nullptr ) {
-            SUBTITLE_LOGE("addDecodedItem add invalid empty spu!");
+            SUBTITLE_LOGE("%s: add invalid empty spu!", __func__);
             return;
         }
 
