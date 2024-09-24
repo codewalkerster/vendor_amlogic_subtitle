@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -27,9 +27,32 @@
 #ifndef __SUBTITLE_STREAM_UTILS_H__
 #define __SUBTITLE_STREAM_UTILS_H__
 
-
-
 //TODO: move to utils directory
+
+static inline uint32_t bytestream_get_be32(const uint8_t **ptr) {
+    uint32_t tmp;
+    tmp = (*ptr)[3] | ((*ptr)[2]<<8) | ((*ptr)[1]<<16) | ((*ptr)[0]<<24);
+    *ptr += 4;
+    return tmp;
+}
+static inline uint32_t bytestream_get_be24(const uint8_t **ptr) {
+    uint32_t tmp;
+    tmp = (*ptr)[2] | ((*ptr)[1]<<8) | ((*ptr)[0]<<16);
+    *ptr += 3;
+    return tmp;
+}
+static inline uint32_t bytestream_get_be16(const uint8_t **ptr) {
+    uint32_t tmp;
+    tmp = (*ptr)[1] | ((*ptr)[0]<<8);
+    *ptr += 2;
+    return tmp;
+}
+static inline uint8_t bytestream_get_byte(const uint8_t **ptr) {
+    uint8_t tmp;
+    tmp = **ptr;
+    *ptr += 1;
+    return tmp;
+}
 
 /**
  *  return the literal value of ascii printed char
@@ -43,9 +66,23 @@ static inline int subAscii2Value(char ascii) {
  *
  *  Peek, do not affect the buffer contents and pointer
  */
-static inline int subPeekAsInt32(const char *buffer) {
-    int value = 0;
-    for (int i = 0; i < 4; i++) {
+static inline int32_t subPeekAsInt32(const char* buffer) {
+    int32_t value = 0;
+    for (auto i = 0; i < 4; ++i) {
+        value <<= 8;
+        value |= buffer[i];
+    }
+    return value;
+}
+
+/**
+ *  Peek the buffer data, consider it to unsigned int 32 value.
+ *
+ *  Peek, do not affect the buffer contents and pointer
+ */
+static inline uint32_t subPeekAsUint32(const char* buffer) {
+    uint32_t value = 0;
+    for (auto i = 0; i < 4; ++i) {
         value <<= 8;
         value |= buffer[i];
     }
@@ -57,14 +94,27 @@ static inline int subPeekAsInt32(const char *buffer) {
  *
  *  Peek, do not affect the buffer contents and pointer
  */
-
-static inline uint64_t subPeekAsInt64(const char *buffer) {
-    uint64_t value = 0;
-    for (uint64_t i = 0; i < 8; i++) {
+static inline int64_t subPeekAsInt64(const char* buffer) {
+    int64_t value = 0;
+    for (auto i = 0; i < 8; ++i) {
         value <<= 8;
         value |= buffer[i];
     }
     return value;
 }
 
-#endif
+/**
+ *  Peek the buffer data, consider it to unsigned int 64 value.
+ *
+ *  Peek, do not affect the buffer contents and pointer
+ */
+static inline uint64_t subPeekAsUint64(const char* buffer) {
+    uint64_t value = 0;
+    for (auto i = 0; i < 8; ++i) {
+        value <<= 8;
+        value |= buffer[i];
+    }
+    return value;
+}
+
+#endif // __SUBTITLE_STREAM_UTILS_H__

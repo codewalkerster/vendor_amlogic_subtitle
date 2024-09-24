@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -369,34 +369,6 @@ static inline void init_get_bits(GetBitContext *s,
     s->bit_count = 32 + 8 * ((intptr_t) buffer & 3);
     skip_bits_long(s, 0);
 #endif
-}
-
-static inline uint32_t bytestream_get_be32(const uint8_t **ptr) {
-    uint32_t tmp;
-    tmp = (*ptr)[3] | ((*ptr)[2]<<8) | ((*ptr)[1]<<16) | ((*ptr)[0]<<24);
-    *ptr += 4;
-    return tmp;
-}
-
-static inline uint32_t bytestream_get_be24(const uint8_t **ptr) {
-    uint32_t tmp;
-    tmp = (*ptr)[2] | ((*ptr)[1]<<8) | ((*ptr)[0]<<16);
-    *ptr += 3;
-    return tmp;
-}
-
-static inline uint32_t bytestream_get_be16(const uint8_t **ptr) {
-    uint32_t tmp;
-    tmp = (*ptr)[1] | ((*ptr)[0]<<8);
-    *ptr += 2;
-    return tmp;
-}
-
-static inline uint8_t bytestream_get_byte(const uint8_t **ptr) {
-    uint8_t tmp;
-    tmp = **ptr;
-    *ptr += 1;
-    return tmp;
 }
 
 enum AVSubtitleType
