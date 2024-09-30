@@ -224,7 +224,7 @@ typedef struct {
    int flag       = -1; // Flag of whether to encrypt or not, 0 means unencrypted, 1 means encrypted
    int magazine   = -1; // Teletext usually uses magazines to organize information. There are at most 8 different magazines, 100-199 (M=1), 200-299 (M=2), 300-399 (M=3), 400-499 (M =4), 500-599 (M=5), 600-699 (M=6), 700-799 (M=7), 800-899 (M=0)
    int pageNo     = -1; // Home page number
-   int subPageNo  = -1; // Subpage page number
+   int subPageNo  = 0; // Subpage page number
    int pageDir    =  0; // +1:next page, -1: last page
    int subPageDir =  0; // +1:next sub page, -1: last sub page
    int regionId   = -1; // Country subset specification, range (0~87), default G0 and G2

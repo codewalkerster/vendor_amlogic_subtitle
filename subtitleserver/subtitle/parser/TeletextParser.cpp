@@ -2159,11 +2159,15 @@ bool TeletextParser::updateParameter(int type, void *data) {
             if (teletextParam->event == TT_EVENT_GO_TO_PAGE && teletextParam->magazine >= TELETEXT_MIN_MAGAZINE_NUMBER && teletextParam->magazine <= TELETEXT_MAX_MAGAZINE_NUMBER) {
                 teletextParam->event = TT_EVENT_GO_TO_PAGE;
                 int pageNum = 0;
-                if ( gVBIStatus.lastMagazine == teletextParam->magazine && gVBIStatus.lastPageNo == teletextParam->pageNo && gVBIStatus.lastSubPageNo == teletextParam->subPageNo) {
-                    pageNum =vbi_dec2bcd(gVBIStatus.lastShowingPage);
+                SUBTITLE_LOGI("%s start needReuseVbiDecoder lastMagazine:%d, lastPageNo:%d, lastSubPageNo:%d, lastShowingPage:%d,magazine:%d pageNo:0x%x subPageNo:0x%x", __FUNCTION__, gVBIStatus.lastMagazine, gVBIStatus.lastPageNo, gVBIStatus.lastSubPageNo, gVBIStatus.lastShowingPage, teletextParam->magazine,teletextParam->pageNo, teletextParam->subPageNo);
+                if (gVBIStatus.lastMagazine == teletextParam->magazine && gVBIStatus.lastPageNo == teletextParam->pageNo) {
+                    pageNum = vbi_dec2bcd(gVBIStatus.lastShowingPage);
                     if (gVBIStatus.lastShowingPage < TELETEXT_MAX_PAGE_NUMBER && gVBIStatus.lastShowingPage >= TELETEXT_PAGE_NUMBER_800) {
                         teletextParam->magazine = TELETEXT_MIN_MAGAZINE_NUMBER;
                         gVBIStatus.lastMagazine = TELETEXT_MIN_MAGAZINE_NUMBER;
+                        gVBIStatus.lastShowingPage = 100;
+                        gVBIStatus.lastPageNo    = 0;
+                        gVBIStatus.lastSubPageNo = 0;
                     } else {
                         teletextParam->magazine = pageNum >> 8;
                     }
@@ -2173,8 +2177,9 @@ bool TeletextParser::updateParameter(int type, void *data) {
                     gVBIStatus.lastMagazine  = teletextParam->magazine;
                     gVBIStatus.lastPageNo    = teletextParam->pageNo;
                     gVBIStatus.lastSubPageNo = teletextParam->subPageNo;
+                    gVBIStatus.lastShowingPage = pageNum;
                 }
-                 SUBTITLE_LOGI("%s needReuseVbiDecoder magazine:%d pageNo:0x%x subPageNo:0x%x",__FUNCTION__,teletextParam->magazine,teletextParam->pageNo, teletextParam->subPageNo);
+                 SUBTITLE_LOGI("%s needReuseVbiDecoder lastMagazine:%d, lastPageNo:%d, lastSubPageNo:%d, lastShowingPage:%d,magazine:%d pageNo:0x%x subPageNo:0x%x", __FUNCTION__, gVBIStatus.lastMagazine, gVBIStatus.lastPageNo, gVBIStatus.lastSubPageNo, gVBIStatus.lastShowingPage, teletextParam->magazine,teletextParam->pageNo, teletextParam->subPageNo);
                 // here, search the last saved page. log start search...
                 gVBIStatus.updateSearchLastPageStart();
             }
@@ -2187,6 +2192,9 @@ bool TeletextParser::updateParameter(int type, void *data) {
             mContext->gotoPage = 0;
             mContext->vbi = NULL;
             gVBIStatus.lastShowingPage = 100;
+            gVBIStatus.lastMagazine  = teletextParam->magazine;
+            gVBIStatus.lastPageNo    = teletextParam->pageNo;
+            gVBIStatus.lastSubPageNo = teletextParam->subPageNo;
             vbi_decoder_delete(gVBIStatus.getVbiInstance());
             gVBIStatus.registerVbiInstance(nullptr);
             SUBTITLE_LOGI(" %s, re-register VBI mContext->vbi:%p magazine:%d pageNo:0x%x subPageNo:0x%x after\n", __FUNCTION__,mContext->vbi, teletextParam->magazine, teletextParam->pageNo, teletextParam->subPageNo);
@@ -2472,7 +2480,7 @@ int TeletextParser::initContext() {
     mContext->pageState = TT2_DISPLAY_STATE;
     mContext->searchDir = 1;
     mContext->gotoPage = 100;
-    mContext->pageNum = -1;
+    mContext->pageNum = 100;
     mContext->subtitlePageId = -1;
     //1:transparent 0:black default transparent
     mContext->transparentBackground = 0;
@@ -3201,4 +3209,3 @@ void TeletextParser::dump(int fd, const char *prefix) {
 
 
 }
-
