@@ -34,14 +34,17 @@
 #include "DataSource.h"
 #include "SubtitleTypes.h"
 
+
 class PgsParser: public Parser {
 public:
     explicit PgsParser(std::shared_ptr<DataSource> source);
     ~PgsParser();
 
     // Parser interfaces
+    bool stopParser() override;
     int parse() override;
     void dump(int fd, const char* prefix) override;
+    void notifyRenderTimeChanged(int64_t renderTime) override;
 
 private:
     // Set enough delay time to wait for PGS End Segment.
@@ -53,6 +56,11 @@ private:
     static const int MAX_OBJECT_REFS    = 2;   // Max objects per display set
 
     static const int OSD_HALF_SIZE = 1920*1280/8;
+
+    static const int DECODE_PRE_TIME_MS = 50;    // Start decoding before this time
+    // PGS data is though as wrong da if the PTS is 2 seconds different with present time,
+    // Which may happen in seek more.
+    static const int WRONG_PGS_PTS_TIME_MS = 2000;
 
     // PGS segment handle sequence is: 1 PCS -> 2 WDS -> 3 PDS -> 4 ODS -> 5 END
     enum SegmentType {
@@ -137,17 +145,26 @@ private:
     };
 
     PGSSubContext mPgsContext;
+    std::vector<std::shared_ptr<PGSSubContext>> mPgsContextList;
+
     int mPreviousObjectNum = 0;
     bool mDumpSub = false;
     std::string mDecodeSequenceTracker = "";
     int mFirstPtsMs = 0;
     uint64_t mCurrentTimeMs = 0;
 
+    // Decode thread
+    bool mStopDecodeThread = false;
+    std::thread mDecodeThread;
+    std::mutex mDecodeMutex;
+    std::condition_variable mDecodeCv;
+    void _loopDecodePgsData();
+
     void checkDebug();
     int readDataSource();
     void softDemuxParser();
     void hwDemuxParser();
-    void decode(const std::vector<uint8_t>& pgsPacket, int duration);
+    void decode(const std::vector<uint8_t>& pgsPacket);
 
     // 1 PCS
     void parsePresentationSegment(const uint8_t* buf, int buf_size);
@@ -159,9 +176,10 @@ private:
     // 5 END
     void handleDisplayEndSegment();
 
+    void decodeRleAndRenderBitmap(PGSSubContext& subContext);
     bool decodeRle(AVSubtitleRect* rect, const std::vector<uint8_t>& buf);
     void renderRle2Bitmap(AVSubtitleRect* rect);
-    void postDecodedItem(int duration);
+    void postDecodedItem(PGSSubContext& subContext, bool isImmediatePresent);
 
     void flushPgsContext();
     PGSSubObject* findObject(int id, PGSSubObjects* objects);

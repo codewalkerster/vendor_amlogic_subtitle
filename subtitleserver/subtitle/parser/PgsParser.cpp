@@ -29,8 +29,10 @@
 
 #include "SubtitleLog.h"
 #include "StreamUtils.h"
+
 #include "ParserFactory.h"
 #include "VideoInfo.h"
+#include <utils/Timers.h>
 
 
 // Follow the latest solution of ffmpeg 7.0.1
@@ -96,7 +98,7 @@ times256(0xFF)
 
 namespace {
 
-std::string int2StrWithLen(int num, int len) {
+static std::string int2StrWithLen(int num, int len) {
     std::string str = std::to_string(abs(num));
     while (str.length() < len) {
         str = "0" + str;
@@ -107,7 +109,7 @@ std::string int2StrWithLen(int num, int len) {
     return str;
 }
 
-uint64_t getCurrentTimeMs()
+static uint64_t getCurrentTimeMs()
 {
   timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -118,17 +120,29 @@ uint64_t getCurrentTimeMs()
 
 PgsParser::PgsParser(std::shared_ptr<DataSource> source)
 {
-    SUBTITLE_LOGI("enter %s \n", __func__);
+    SUBTITLE_LOGI("enter %s", __func__);
 
-    mDataSource = source;
+    mDataSource = std::move(source);
     mParseType = TYPE_SUBTITLE_PGS;
 
+    memset(&mPgsContext, 0, sizeof(PGSSubContext));
+    mStopDecodeThread = false;
+    mDecodeThread = std::thread(&PgsParser::_loopDecodePgsData, this);
     checkDebug();
 }
 
 PgsParser::~PgsParser()
 {
-    SUBTITLE_LOGI("enter %s \n", __func__);
+    SUBTITLE_LOGI("enter %s", __func__);
+    if (!mStopDecodeThread) {
+        mStopDecodeThread = true;
+        std::unique_lock<std::mutex> autolock(mDecodeMutex);
+        mDecodeCv.notify_all();
+    }
+    if (mDecodeThread.joinable()) {
+        mDecodeThread.join();
+    }
+    mPgsContextList.clear();
     for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
         auto object = findObject(mPgsContext.presentation.objects[i].id,
                                  &mPgsContext.objects);
@@ -136,25 +150,42 @@ PgsParser::~PgsParser()
             continue;
         }
 
+        // The malloc and free are done in decodeRleAndRenderBitmap actually
+        // Add such housekeeping for safety.
         AVSubtitleRect* const rect = &mPgsContext.presentation.present_sub_rect[i];
         if (rect->decodedRle) {
             free(rect->decodedRle);
         }
         // rect->bitmap memory will be freed in de-constructor of AML_SPUVAR
     }
+    SUBTITLE_LOGI("%s DONE", __func__);
 }
 
 // Parser interfaces
 // =====================
+bool PgsParser::stopParser()
+{
+    SUBTITLE_LOGI("enter %s", __func__);
+    {
+        mStopDecodeThread = true;
+        std::unique_lock<std::mutex> autolock(mDecodeMutex);
+        mDecodeCv.notify_all();
+    }
+    SUBTITLE_LOGI("%s: stop decoding thread", __func__);
+    if (mDecodeThread.joinable()) {
+        mDecodeThread.join();
+    }
+    mPgsContextList.clear();
+    SUBTITLE_LOGI("%s: stop data reading thread", __func__);
+    return Parser::stopParser();
+}
+
 int PgsParser::parse()
 {
     while (!mThreadExitRequested) {
         readDataSource();
-        if (mMaxSpuItems > 10 && mDecodedSpu.size() >= mMaxSpuItems/2) {
-            // 30ms is about 2 frames in 60 fps
-            std::this_thread::sleep_for(std::chrono::milliseconds(30));
-        }
     }
+    SUBTITLE_LOGI("%s: STOPPED", __func__);
     return 0;
 }
 
@@ -194,6 +225,13 @@ void PgsParser::dump(int fd, const char *prefix)
     dprintf(fd, "-------------------------------------------------------------\n");
 }
 
+void PgsParser::notifyRenderTimeChanged(int64_t renderTime)
+{
+    Parser::notifyRenderTimeChanged(renderTime);
+    std::unique_lock<std::mutex> autolock(mDecodeMutex);
+    mDecodeCv.notify_all();
+}
+
 
 // Private functions
 // =====================
@@ -206,13 +244,26 @@ void PgsParser::checkDebug()
 #endif
 }
 
+void PgsParser::_loopDecodePgsData()
+{
+    while (!mThreadExitRequested) {
+        std::unique_lock<std::mutex> autolock(mDecodeMutex);
+        mDecodeCv.wait(autolock);
+        if (mStopDecodeThread) {
+            break;
+        }
+        handleDisplayEndSegment();
+    }
+    SUBTITLE_LOGI("%s: STOPPED", __func__);
+}
+
 int PgsParser::readDataSource()
 {
     mState = SUB_PLAYING;
 
     uint8_t buf = 0;
     uint64_t packetHeader = 0;
-    while (mDataSource->read(&buf, 1) == 1)  {
+    while (mDataSource->read(&buf, 1) == 1) {
         if (mState == SUB_STOP) {
             return 0;
         }
@@ -242,14 +293,14 @@ int PgsParser::readDataSource()
 
 void PgsParser::softDemuxParser()
 {
-    SUBTITLE_LOGI("enter %s \n", __func__);
+    SUBTITLE_LOGI("enter %s", __func__);
 
     // 1. Read the header data, please see branch p-amlogic in
     // repo av-restricted/platform/vendor/amnuplayer
     static const int HEADER_LENGTH = 19;
     char header[HEADER_LENGTH] = {0};
     if (mDataSource->read(header, HEADER_LENGTH) != HEADER_LENGTH) {
-        SUBTITLE_LOGE("%s: fail to read header\n", __func__);
+        SUBTITLE_LOGE("%s: fail to read header", __func__);
         return;
     }
 
@@ -264,20 +315,20 @@ void PgsParser::softDemuxParser()
     auto dataLen = subPeekAsUint32(header + 3);
     auto pts = subPeekAsUint64(header + 7);
     if (pts == 0) {
-        SUBTITLE_LOGE("%s: get zero pts\n", __func__);
+        SUBTITLE_LOGE("%s: get zero pts", __func__);
         return;
     }
 
     // The unit of duration is: duration = ms*90
     auto duration = subPeekAsUint32(header + 15);
 
-    SUBTITLE_LOGI("%s: dataLen=%d, pts=%" PRId64 ", duration=%d\n",
+    SUBTITLE_LOGI("%s: dataLen=%d, pts=%" PRId64 ", duration=%d",
                   __func__, dataLen, pts, duration);
 
     // 2. Read the packet data
     auto dataBuff = std::vector<uint8_t>(dataLen);
     if (mDataSource->read(dataBuff.data(), dataLen) != dataLen) {
-        SUBTITLE_LOGE("%s: fail to read data\n", __func__);
+        SUBTITLE_LOGE("%s: fail to read data", __func__);
         return;
     }
 
@@ -292,7 +343,7 @@ void PgsParser::softDemuxParser()
         auto packetType = bytestream_get_byte(&buff);
         auto packetLen  = bytestream_get_be16(&buff);
         if (packetLen == 0 && packetType != 0x80) {
-            SUBTITLE_LOGE("%s: get zero packetLen\n", __func__);
+            SUBTITLE_LOGE("%s: get zero packetLen", __func__);
             return;
         }
         if (buff + packetLen > buff_end) {
@@ -307,7 +358,7 @@ void PgsParser::softDemuxParser()
         // NOTE: this check comes from old PGS parser as some memory issue,
         // which is used for all subtitle parsers
         if (pgsPacketSize > OSD_HALF_SIZE*4) {
-            SUBTITLE_LOGE("%s: PGS packet is too big: packetLen(%d) > max(%d)\n",
+            SUBTITLE_LOGE("%s: PGS packet is too big: packetLen(%d) > max(%d)",
                           __func__, packetLen, OSD_HALF_SIZE*4);
             return;
         }
@@ -335,35 +386,35 @@ void PgsParser::softDemuxParser()
         pgsPacketData.insert(pgsPacketData.end(), buff, buff + packetLen);
         buff += packetLen;
 
-        decode(pgsPacketData, duration);
+        decode(pgsPacketData);
     }
 }
 
 // TODO: PES demux parser is not used by now, implement it for future extension.
 void PgsParser::hwDemuxParser()
 {
-    SUBTITLE_LOGI("enter %s \n", __func__);
+    SUBTITLE_LOGI("enter %s", __func__);
 
     uint8_t dataLen[2] = {0};
     if (mDataSource->read(dataLen, 2) != 2) {
-        SUBTITLE_LOGE("%s: fail to read packet length\n", __func__);
+        SUBTITLE_LOGE("%s: fail to read packet length", __func__);
         return;
     }
     const uint8_t* dataBuff = dataLen;
     auto packetLen = bytestream_get_be16(&dataBuff);
     if (packetLen < 3) {
-        SUBTITLE_LOGE("%s: packet size is <3\n", __func__);
+        SUBTITLE_LOGE("%s: packet size is <3", __func__);
         return;
     }
     char header[3] = {0};
     if (mDataSource->read(header, 3) != 3) {
-        SUBTITLE_LOGE("%s: fail to read header\n", __func__);
+        SUBTITLE_LOGE("%s: fail to read header", __func__);
         return;
     }
     packetLen -= 3;
     auto pesHeaderLen = header[2];
     if (packetLen < pesHeaderLen) {
-        SUBTITLE_LOGE("%s: packet size %d < pes len %d \n",
+        SUBTITLE_LOGE("%s: packet size %d < pes len %d",
               __func__, packetLen, pesHeaderLen);
         return;
     }
@@ -375,7 +426,7 @@ void PgsParser::hwDemuxParser()
         needSkipPkt = false;
         auto pesHeader = std::vector<char>(pesHeaderLen);
         if (mDataSource->read(pesHeader.data(), pesHeaderLen) != pesHeaderLen) {
-            SUBTITLE_LOGE("%s: fail to read pes header\n", __func__);
+            SUBTITLE_LOGE("%s: fail to read pes header", __func__);
             return;
         }
         auto pesBuff = pesHeader.data();
@@ -404,7 +455,7 @@ void PgsParser::hwDemuxParser()
     }
 
     if (pts == 0 || packetLen <= 0) {
-        SUBTITLE_LOGE("%s: get zero pts or no data\n", __func__);
+        SUBTITLE_LOGE("%s: get zero pts or no data", __func__);
         return;
     }
 
@@ -413,7 +464,7 @@ void PgsParser::hwDemuxParser()
     auto pgsHeaderSize = 2 + 8;
     auto pgsPacketSize = pgsHeaderSize + packetLen;
     if (mDataSource->availableDataSize() < packetLen || mState == SUB_STOP) {
-        SUBTITLE_LOGI("%s: stopped or no enough data\n", __func__);
+        SUBTITLE_LOGI("%s: stopped or no enough data", __func__);
         return;
     }
 
@@ -434,14 +485,14 @@ void PgsParser::hwDemuxParser()
 
     // segment type + segment size are included in this reading.
     if (mDataSource->read(pgsPacketData.data() + pgsHeaderSize, packetLen) != packetLen) {
-        SUBTITLE_LOGE("%s: fail to read data\n", __func__);
+        SUBTITLE_LOGE("%s: fail to read data", __func__);
         return;
     }
 
-    decode(pgsPacketData, 0);
+    decode(pgsPacketData);
 }
 
-void PgsParser::decode(const std::vector<uint8_t>& pgsPacket, int duration)
+void PgsParser::decode(const std::vector<uint8_t>& pgsPacket)
 {
     auto buf = const_cast<const uint8_t*>(pgsPacket.data());
     auto buf_size = pgsPacket.size();
@@ -450,30 +501,36 @@ void PgsParser::decode(const std::vector<uint8_t>& pgsPacket, int duration)
 
     auto buf_end = buf + buf_size;
     while (buf < buf_end) {
+        if (mState == SUB_STOP) {
+            return;
+        }
         // Skip "PG"
         buf += 2;
 
         int pts = bytestream_get_be32(&buf);
 
         // Prepare log time
-        int pts_ms = pts / DEFAULT_DVB_TIME_MULTI;
-        // Set the first pts at first or after seeking
-        if (mFirstPtsMs == 0 || mFirstPtsMs > pts_ms) {
-            mFirstPtsMs = pts_ms;
+        int ptsMs = pts / DEFAULT_DVB_TIME_MULTI;
+        // Set the first pts
+        if (mFirstPtsMs == 0 || mFirstPtsMs > ptsMs) {
+            mFirstPtsMs = ptsMs;
+            SUBTITLE_LOGI("%s: mFirstPtsMs=%d ms mPresentationTimeMs=%" PRId64 " ms",
+                          __func__, mFirstPtsMs,
+                          mPresentationTime/DEFAULT_DVB_TIME_MULTI);
         }
-        int ms_from_first_pts = pts_ms - mFirstPtsMs;
+        int msFromFirstPts = ptsMs - mFirstPtsMs;
 
-        int ms = pts_ms % 1000;
-        int second = pts_ms / 1000 % 60;
-        int minute = pts_ms / 1000 / 60 % 60;
-        int hour = pts_ms / 1000 / 60 / 60;
+        int ms = ptsMs % 1000;
+        int second = ptsMs / 1000 % 60;
+        int minute = ptsMs / 1000 / 60 % 60;
+        int hour = ptsMs / 1000 / 60 / 60;
         // log PTS time
-        std::string log_pts = "[" + std::to_string(pts) + "]" + "["
+        std::string logPts = "[" + std::to_string(pts) + "]" + "["
             + int2StrWithLen(hour, 2) + ":" + int2StrWithLen(minute, 2)
             + ":" + int2StrWithLen(second, 2) + "." + int2StrWithLen(ms, 3) + "]";
         // log duration from the first PTS
-        log_pts += ("[" + int2StrWithLen(ms_from_first_pts/1000, 4) + "."
-            + int2StrWithLen(abs(ms_from_first_pts)%1000, 3) + " s]");
+        logPts += ("[" + int2StrWithLen(msFromFirstPts/1000, 4) + "."
+            + int2StrWithLen(abs(msFromFirstPts)%1000, 3) + " s]");
 
         int dts = bytestream_get_be32(&buf);
         uint8_t segment_type = bytestream_get_byte(&buf);
@@ -484,7 +541,15 @@ void PgsParser::decode(const std::vector<uint8_t>& pgsPacket, int duration)
         switch (segment_type) {
         case PRESENTATION_COMPOSITION_SEGMENT: // 1 PCS = 0x16
         {
-            SUBTITLE_LOGI("%s_sequence_start: pts=%d", __func__, pts);
+            int prePtsTimeMs = ptsMs - mPresentationTime/DEFAULT_DVB_TIME_MULTI;
+            if ( prePtsTimeMs < DECODE_PRE_TIME_MS) {
+                SUBTITLE_LOGI("%s_sequence_start_jitter: pts=%d(%d ms) prePtsTimeMs= %d ms",
+                              __func__, pts, ptsMs, prePtsTimeMs);
+            }
+            else {
+                SUBTITLE_LOGI("%s_sequence_start: pts=%d(%d ms) prePtsTimeMs= %d ms",
+                              __func__, pts, ptsMs, prePtsTimeMs);
+            }
             mDecodeSequenceTracker = "[ 1_PCS --> ";
             mPgsContext.presentation.pts = pts;
             parsePresentationSegment(buf, segment_length);
@@ -518,23 +583,20 @@ void PgsParser::decode(const std::vector<uint8_t>& pgsPacket, int duration)
         case END_DISPLAY_SEGMENT: // 5 END = 0x80
         {
             mDecodeSequenceTracker += "5_END ]";
-            mCurrentTimeMs = getCurrentTimeMs();
-            handleDisplayEndSegment();
-            uint64_t spendTimeMs = getCurrentTimeMs() - mCurrentTimeMs;
-            if (spendTimeMs > 50) {
-               SUBTITLE_LOGI("%s_sequence_long_time: END_DISPLAY_SEGMENT spend %" PRIu64 " ms",
-                             __func__, spendTimeMs);
+            {
+                std::unique_lock<std::mutex> autolock(mDecodeMutex);
+                mPgsContextList.push_back(std::make_shared<PGSSubContext>(mPgsContext));
             }
-            postDecodedItem(duration);
+            // onRenderTimeChanged will trigger the display.
             break;
         }
         default: {
-            SUBTITLE_LOGE("%s_sequence: Unknown subtitle segment type 0x%x, length %d\n",
+            SUBTITLE_LOGE("%s_sequence: Unknown subtitle segment type 0x%x, length %d",
                           __func__, segment_type, segment_length);
             break;
         }
         }
-        std::string log = log_pts + mDecodeSequenceTracker;
+        std::string log = logPts + mDecodeSequenceTracker;
         SUBTITLE_LOGI("%s_sequence: %s\n", __func__, log.c_str());
         buf += segment_length;
     }
@@ -584,7 +646,7 @@ void PgsParser::parsePresentationSegment(const uint8_t* buf, int buf_size)
                   mPgsContext.presentation.object_count);
 
     if (mPgsContext.presentation.object_count > MAX_OBJECT_REFS) {
-        SUBTITLE_LOGE("%s: Invalid number of presentation objects %d\n", __func__,
+        SUBTITLE_LOGE("%s: Invalid number of presentation objects %d", __func__,
                       mPgsContext.presentation.object_count);
         mPgsContext.presentation.object_count = 2;
         return;
@@ -594,7 +656,7 @@ void PgsParser::parsePresentationSegment(const uint8_t* buf, int buf_size)
         PGSSubObjectRef *const object = &mPgsContext.presentation.objects[i];
 
         if (buf_end - buf < 8) {
-            SUBTITLE_LOGE("%s: insufficient space for object\n", __func__);
+            SUBTITLE_LOGE("%s: insufficient space for object", __func__);
             mPgsContext.presentation.object_count = i;
             return;
         }
@@ -613,12 +675,12 @@ void PgsParser::parsePresentationSegment(const uint8_t* buf, int buf_size)
             object->crop_w = bytestream_get_be16(&buf);
             object->crop_h = bytestream_get_be16(&buf);
         }
-        SUBTITLE_LOGI("%s_%d: objectId=%d, composition_flag=0x%02x, (x%d, y%d)\n",
+        SUBTITLE_LOGI("%s_%d: objectId=%d, composition_flag=0x%02x, (x%d, y%d)",
                       __func__, i, object->id,
                       object->composition_flag, object->x, object->y);
         if (object->x > mPgsContext.presentation.videoWidth
             || object->y > mPgsContext.presentation.videoHeight) {
-            SUBTITLE_LOGE("%s: out of video bounds: subtitle(x%d, y%d), video(w%d, h%d)\n",
+            SUBTITLE_LOGE("%s: out of video bounds: subtitle(x%d, y%d), video(w%d, h%d)",
                           __func__, object->x, object->y,
                           mPgsContext.presentation.videoWidth,
                           mPgsContext.presentation.videoHeight);
@@ -645,7 +707,7 @@ void PgsParser::parsePaletteSegment(const uint8_t* buf, int buf_size)
     palette = findPalette(id, &mPgsContext.palettes);
     if (!palette) {
         if (mPgsContext.palettes.count >= MAX_EPOCH_PALETTES) {
-            SUBTITLE_LOGE("%s: Too many palettes in epoch\n", __func__);
+            SUBTITLE_LOGE("%s: Too many palettes in epoch", __func__);
             return;
         }
         palette = &mPgsContext.palettes.palette[mPgsContext.palettes.count++];
@@ -688,7 +750,7 @@ int PgsParser::parseObjectSegment(const uint8_t* buf, int buf_size)
     auto object = findObject(id, &mPgsContext.objects);
     if (!object) {
         if (mPgsContext.objects.count >= MAX_EPOCH_OBJECTS) {
-            SUBTITLE_LOGE("%s: Too many objects in epoch\n", __func__);
+            SUBTITLE_LOGE("%s: Too many objects in epoch", __func__);
             return -1;
         }
         object = &mPgsContext.objects.object[mPgsContext.objects.count++];
@@ -705,7 +767,7 @@ int PgsParser::parseObjectSegment(const uint8_t* buf, int buf_size)
     if (!(sequence_desc & 0x80)) {
         // Additional RLE data
         if (buf_size > object->rle_remaining_len) {
-            SUBTITLE_LOGE("%s: buf_size %d > rle_remaining_len %d\n",
+            SUBTITLE_LOGE("%s: buf_size %d > rle_remaining_len %d",
                           __func__, buf_size, object->rle_remaining_len);
             return -1;
         }
@@ -718,16 +780,16 @@ int PgsParser::parseObjectSegment(const uint8_t* buf, int buf_size)
     }
 
     if (buf_size <= 7) {
-        SUBTITLE_LOGE("%s: buf_size %d <= 7\n", __func__, buf_size);
+        SUBTITLE_LOGE("%s: buf_size %d <= 7", __func__, buf_size);
         return -1;
     }
     buf_size -= 7;
 
-    // decode rle bitmap length, stored size includes width/height data
+    // Decode rle bitmap length, stored size includes width/height data
     unsigned int rle_bitmap_len = bytestream_get_be24(&buf) - 2*2;
 
     if (buf_size > rle_bitmap_len) {
-        SUBTITLE_LOGE("%s: Buffer dimension %d larger than the expected RLE data %d\n",
+        SUBTITLE_LOGE("%s: Buffer dimension %d larger than the expected RLE data %d",
                       __func__, buf_size, rle_bitmap_len);
         return -1;
     }
@@ -740,7 +802,7 @@ int PgsParser::parseObjectSegment(const uint8_t* buf, int buf_size)
     if (mPgsContext.presentation.videoWidth < width
         || mPgsContext.presentation.videoHeight < height
         || !width || !height) {
-        SUBTITLE_LOGE("%s: Bitmap dimensions (%dx%d) invalid\n",
+        SUBTITLE_LOGE("%s: Bitmap dimensions (%dx%d) invalid",
                       __func__, width, height);
         return -1;
     }
@@ -756,35 +818,125 @@ int PgsParser::parseObjectSegment(const uint8_t* buf, int buf_size)
 }
 
 // 5 END
-void PgsParser::handleDisplayEndSegment(    )
+void PgsParser::handleDisplayEndSegment()
 {
-    auto palette = findPalette(mPgsContext.presentation.palette_id,
-                               &mPgsContext.palettes);
+    auto presentationPtsMs = mPresentationTime/DEFAULT_DVB_TIME_MULTI + DECODE_PRE_TIME_MS;
+
+    // 1. Drop the PGS contexts suppose which are received during seek
+    mPgsContextList.erase(std::remove_if(mPgsContextList.begin(),  mPgsContextList.end(),
+            [=] (const std::shared_ptr<PGSSubContext>& it) {
+                int ptsMs = it->presentation.pts / DEFAULT_DVB_TIME_MULTI;
+                int diffTimeMs = ptsMs - presentationPtsMs;
+                // Skip the playback start time
+                bool isWrongPgs = diffTimeMs >= WRONG_PGS_PTS_TIME_MS
+                    && abs(ptsMs - mFirstPtsMs) > 10000;
+                if (isWrongPgs) {
+                    SUBTITLE_LOGI("handleDisplayEndSegment_decode_drop: pts=%" PRId64
+                        ", ptsDiff= %d ms", it->presentation.pts, diffTimeMs);
+                }
+                return isWrongPgs;
+            }),
+            mPgsContextList.end());
+
+    // 2. Find PGS contexts need to be decoded
+    std::vector<std::shared_ptr<PGSSubContext>> presentPgsContexts;
+    for (auto it : mPgsContextList) {
+        auto presentationPts =
+            mPresentationTime + DECODE_PRE_TIME_MS*DEFAULT_DVB_TIME_MULTI;
+        auto ptsDiffMs =
+            (it->presentation.pts - presentationPts) / DEFAULT_DVB_TIME_MULTI;
+        if (ptsDiffMs > 0) {
+            break;
+        }
+        presentPgsContexts.push_back(it);
+    }
+
+    // 3. Decode PGS contexts
+    bool isDecodeBusy = false;
+    for (auto i = 0; i < presentPgsContexts.size(); ++i) {
+        if (mState == SUB_STOP) {
+            return;
+        }
+
+        int ptsMsDiff2Next = 0;
+        auto it = presentPgsContexts[i];
+        // Stop post display cleanup item if the next pts is same as this null spu
+        if (i + 1 < presentPgsContexts.size()) {
+            auto next = presentPgsContexts[i+1];
+            ptsMsDiff2Next =
+                (next->presentation.pts - it->presentation.pts) / DEFAULT_DVB_TIME_MULTI;
+            if (it->presentation.object_count == 0
+                && it->presentation.pts == next->presentation.pts) {
+                mPgsContextList.erase(mPgsContextList.begin());
+                continue;
+            }
+        }
+
+        mCurrentTimeMs = getCurrentTimeMs();
+        decodeRleAndRenderBitmap(*it);
+        postDecodedItem(*it, true);
+        mPgsContextList.erase(mPgsContextList.begin());
+
+        auto spendTimeMs = getCurrentTimeMs() - mCurrentTimeMs;
+        if (spendTimeMs >= DECODE_PRE_TIME_MS && spendTimeMs >= ptsMsDiff2Next) {
+           SUBTITLE_LOGI("%s_decode_jitter:[pts=%" PRId64 "] spend %" PRIu64
+                         " ms, total = %zu/%zu",
+                         __func__, it->presentation.pts,
+                         spendTimeMs, presentPgsContexts.size(),
+                         mPgsContextList.size());
+           isDecodeBusy = true;
+           break;
+        }
+    }
+    presentPgsContexts.clear();
+
+    // 4. Drop remaining if decode is busy
+    if (isDecodeBusy && mPgsContextList.size() > 0) {
+        int dropNum = 0;
+        auto queuedNum = mPgsContextList.size();
+        // Be sure the screen cleanup items are not dropped.
+        while (!mPgsContextList.empty()) {
+            auto it = mPgsContextList.front();
+            if (it->presentation.object_count == 0) {
+                break;
+            }
+            mPgsContextList.erase(mPgsContextList.begin());
+            ++dropNum;
+        }
+        SUBTITLE_LOGI("%s_decode_jitter_drop: drop %d/%zu",
+                      __func__, dropNum, queuedNum);
+    }
+}
+
+void PgsParser::decodeRleAndRenderBitmap(PGSSubContext& subContext)
+{
+    auto palette = findPalette(subContext.presentation.palette_id,
+                               &subContext.palettes);
     if (!palette) {
-        SUBTITLE_LOGE("%s: Invalid palette id %d\n", __func__,
-                      mPgsContext.presentation.palette_id);
+        SUBTITLE_LOGE("%s: Invalid palette id %d", __func__,
+                      subContext.presentation.palette_id);
         return;
     }
 
-    for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
-        auto object = findObject(mPgsContext.presentation.objects[i].id,
-                                 &mPgsContext.objects);
+    for (auto i = 0; i < subContext.presentation.object_count; ++i) {
+        auto object = findObject(subContext.presentation.objects[i].id,
+                                 &subContext.objects);
         if (!object) {
-            SUBTITLE_LOGE("%s: Invalid object, objectId=%d\n", __func__,
-                          mPgsContext.presentation.objects[i].id);
+            SUBTITLE_LOGE("%s: Invalid object, objectId=%d", __func__,
+                          subContext.presentation.objects[i].id);
             continue;
         }
 
-        AVSubtitleRect* const rect = &mPgsContext.presentation.present_sub_rect[i];
-        rect->x = mPgsContext.presentation.objects[i].x;
-        rect->y = mPgsContext.presentation.objects[i].y;
+        AVSubtitleRect* const rect = &subContext.presentation.present_sub_rect[i];
+        rect->x = subContext.presentation.objects[i].x;
+        rect->y = subContext.presentation.objects[i].y;
         rect->is_valid = true;
         if (object->rle.size() > 0) {
             rect->w = object->w;
             rect->h = object->h;
 
             if (object->rle_remaining_len) {
-                SUBTITLE_LOGE("%s: RLE data length %u is %u bytes shorter than expected\n",
+                SUBTITLE_LOGE("%s: RLE data length %u is %u bytes shorter than expected",
                               __func__, object->rle_data_len, object->rle_remaining_len);
                 rect->is_valid = false;
                 return;
@@ -794,7 +946,7 @@ void PgsParser::handleDisplayEndSegment(    )
             // The malloc should be freed after renderRle2Bitmap
             rect->decodedRle = static_cast<uint8_t*>(malloc(rect->decodedRleSize));
             if (!rect->decodedRle) {
-                ALOGE("%s: malloc error %m\n", __func__);
+                SUBTITLE_LOGE("%s: malloc error %m", __func__);
                 return;
             }
             auto ret = decodeRle(rect, object->rle);
@@ -818,7 +970,7 @@ void PgsParser::handleDisplayEndSegment(    )
         rect->decodedRleSize = 0;
 
         rect->is_forced_display = \
-            (mPgsContext.presentation.objects[i].composition_flag & 0x40);
+            (subContext.presentation.objects[i].composition_flag & 0x40);
         // NOTE: spu's object_segment_id is mapped to reference object id.
         rect->object_segment_id = i;
     }
@@ -853,7 +1005,7 @@ bool PgsParser::decodeRle(AVSubtitleRect* rect, const std::vector<uint8_t>& rleD
             // New Line. Check if correct pixels decoded, if not display warning
             // and adjust bitmap pointer to correct new line position.
             if (pixel_count % rect->w > 0) {
-                SUBTITLE_LOGE("%s: decoded %d pixels, when line should be %d pixels\n",
+                SUBTITLE_LOGE("%s: Decoded %d pixels, when line should be %d pixels",
                               __func__, pixel_count % rect->w, rect->w);
                 return false;
             }
@@ -862,7 +1014,7 @@ bool PgsParser::decodeRle(AVSubtitleRect* rect, const std::vector<uint8_t>& rleD
     }
 
     if (pixel_count < rect->w * rect->h) {
-        SUBTITLE_LOGE("%s: Insufficient RLE data for subtitle\n", __func__);
+        SUBTITLE_LOGE("%s: Insufficient RLE data for subtitle", __func__);
         return false;
     }
     return true;
@@ -876,7 +1028,7 @@ void PgsParser::renderRle2Bitmap(AVSubtitleRect* rect)
     // NOTE: The malloc will be freed in AML_SPUVAR's de-constructor after postDecodedItem
     rect->bitmap = static_cast<uint8_t*>(malloc(rect->bitmapSize));
     if (!rect->bitmap) {
-        ALOGE("%s: malloc error %m\n", __func__);
+        ALOGE("%s: malloc error %m", __func__);
         return;
     }
 
@@ -892,86 +1044,92 @@ void PgsParser::renderRle2Bitmap(AVSubtitleRect* rect)
     }
 }
 
-void PgsParser::postDecodedItem(int duration)
+void PgsParser::postDecodedItem(PGSSubContext& subContext, bool isImmediatePresent)
 {
     if (mState == SUB_STOP) {
         return;
     }
 
-    auto pts = mPgsContext.presentation.pts;
+    auto pts = subContext.presentation.pts;
 
     // End Display Segment has 0 object and Composition State is 0x00, it means
     // all objects should be cleared on the screen
-    if (mPgsContext.presentation.object_count < mPreviousObjectNum
-        || mPgsContext.presentation.object_count == 0) {
+    if (subContext.presentation.object_count < mPreviousObjectNum
+        || subContext.presentation.object_count == 0) {
         for (auto i = 0; i < MAX_OBJECT_REFS; ++i) {
-            SUBTITLE_LOGI("%s_end_display: objectId=%d, pts=%" PRId64 "(%" PRId64
-                          " ms), videoW%d, videoH%d, count %d(pre=%d)\n",
-                          __func__, i, pts, pts / DEFAULT_DVB_TIME_MULTI,
-                          mPgsContext.presentation.videoWidth,
-                          mPgsContext.presentation.videoHeight,
-                          mPgsContext.presentation.object_count,
-                          mPreviousObjectNum);
+            int ptsMs = pts / DEFAULT_DVB_TIME_MULTI;
+            int presentPtsMs = mPresentationTime / DEFAULT_DVB_TIME_MULTI;
+            SUBTITLE_LOGI("%s_end_display: objectId=%d, pts=%" PRId64 "(%d ms)"
+                          " diffWithPresentTime=%d ms"
+                          " videoW%d, videoH%d, count %d(pre=%d) mPgsContextList=%zu",
+                          __func__, i, pts, ptsMs, ptsMs - presentPtsMs,
+                          subContext.presentation.videoWidth,
+                          subContext.presentation.videoHeight,
+                          subContext.presentation.object_count,
+                          mPreviousObjectNum,
+                          mPgsContextList.size());
 
             // 1. Make spu structure
             std::shared_ptr<AML_SPUVAR> spu = std::make_shared<AML_SPUVAR>();
             spu->subtitle_type = TYPE_SUBTITLE_PGS;
-            spu->spu_origin_display_w = mPgsContext.presentation.videoWidth;
-            spu->spu_origin_display_h = mPgsContext.presentation.videoHeight;
+            spu->isImmediatePresent = isImmediatePresent;
+            spu->spu_origin_display_w = subContext.presentation.videoWidth;
+            spu->spu_origin_display_h = subContext.presentation.videoHeight;
             spu->pts = pts;
-            spu->m_delay = pts + duration;
+            spu->m_delay = pts;
             spu->objectSegmentId = i;
             spu->buffer_size = 0;
 
             // 2. Post spu
-            Parser::addDecodedItem(spu);
+            Parser::addDecodedItem(std::move(spu));
         }
-        mPreviousObjectNum = mPgsContext.presentation.object_count;
-        if (mPgsContext.presentation.object_count == 0) {
+        mPreviousObjectNum = subContext.presentation.object_count;
+        if (subContext.presentation.object_count == 0) {
             return;
         }
     }
 
-    mPreviousObjectNum = mPgsContext.presentation.object_count;
-    for (auto i = 0; i < mPgsContext.presentation.object_count; ++i) {
-        auto object = findObject(mPgsContext.presentation.objects[i].id,
-                                 &mPgsContext.objects);
+    mPreviousObjectNum = subContext.presentation.object_count;
+    for (auto i = 0; i < subContext.presentation.object_count; ++i) {
+        auto object = findObject(subContext.presentation.objects[i].id,
+                                 &subContext.objects);
         if (!object) {
-            SUBTITLE_LOGE("%s: Invalid objectId %d\n", __func__,
-                          mPgsContext.presentation.objects[i].id);
+            SUBTITLE_LOGE("%s: Invalid objectId %d", __func__,
+                          subContext.presentation.objects[i].id);
             continue;
         }
 
-        auto rect = &mPgsContext.presentation.present_sub_rect[i];
+        auto rect = &subContext.presentation.present_sub_rect[i];
         if (!rect->is_valid) {
             // The error log was printed during parsing
             continue;
         }
 
-        SUBTITLE_LOGI("%s: index_%d/%d. objectId=%d, pts=%" PRId64 "(%" PRId64
-                      " ms), bitmap_bytes=%d(w%4d*h%-3d*4), (x%-3d, y%-3d), videoW%d,"
-                      " videoH%d, isValid=%d\n",
-                      __func__, i+1, mPgsContext.presentation.object_count,
-                      rect->object_segment_id, pts, pts / DEFAULT_DVB_TIME_MULTI,
+        int ptsMs = pts / DEFAULT_DVB_TIME_MULTI;
+        int presentPtsMs = mPresentationTime / DEFAULT_DVB_TIME_MULTI;
+        SUBTITLE_LOGI("%s: index_%d/%d. objectId=%d, pts=%" PRId64 "(%d ms)"
+                      " diffWithPresentTime=%d ms"
+                      " bitmap_bytes=%d(w%4d*h%-3d*4), (x%-3d, y%-3d), videoW%d,"
+                      " videoH%d, isValid=%d, mPgsContextList=%zu",
+                      __func__, i+1, subContext.presentation.object_count,
+                      rect->object_segment_id, pts, ptsMs, ptsMs - presentPtsMs,
                       rect->bitmapSize, rect->w, rect->h, rect->x, rect->y,
-                      mPgsContext.presentation.videoWidth,
-                      mPgsContext.presentation.videoHeight,
-                      rect->is_valid);
+                      subContext.presentation.videoWidth,
+                      subContext.presentation.videoHeight,
+                      rect->is_valid, mPgsContextList.size());
 
         // 1. Make spu structure
         std::shared_ptr<AML_SPUVAR> spu = std::make_shared<AML_SPUVAR>();
         spu->subtitle_type = TYPE_SUBTITLE_PGS;
+        spu->isImmediatePresent = isImmediatePresent;
         spu->spu_start_x = rect->x;
         spu->spu_start_y = rect->y;
         spu->spu_width = rect->w;
         spu->spu_height = rect->h;
-        spu->spu_origin_display_w = mPgsContext.presentation.videoWidth;
-        spu->spu_origin_display_h = mPgsContext.presentation.videoHeight;
+        spu->spu_origin_display_w = subContext.presentation.videoWidth;
+        spu->spu_origin_display_h = subContext.presentation.videoHeight;
         spu->pts = pts;
-        spu->m_delay = pts + duration;
-        if (duration == 0) {
-            spu->m_delay = pts + DEFAULT_DURATION_SECOND * 1000 * DEFAULT_DVB_TIME_MULTI;
-        }
+        spu->m_delay = pts + DEFAULT_DURATION_SECOND * 1000 * DEFAULT_DVB_TIME_MULTI;
         spu->objectSegmentId = rect->object_segment_id;
         spu->buffer_size = rect->bitmapSize;
 
@@ -982,7 +1140,7 @@ void PgsParser::postDecodedItem(int duration)
         if (mDumpSub && rect->bitmap) {
             save2BitmapFile(rect->bitmap, rect->bitmapSize, rect->w, rect->h,
                             spu->pts, spu->objectSegmentId,
-                            mPgsContext.presentation.objects[i].id);
+                            subContext.presentation.objects[i].id);
         }
 
         // 2. Post spu
@@ -993,7 +1151,6 @@ void PgsParser::postDecodedItem(int duration)
 
 void PgsParser::flushPgsContext()
 {
-    SUBTITLE_LOGI("enter %s \n", __func__);
     for (auto i = 0; i < mPgsContext.objects.count; ++i) {
         mPgsContext.objects.object[i].rle.clear();
         mPgsContext.objects.object[i].rle_buffer_size = 0;
@@ -1027,7 +1184,7 @@ void PgsParser::save2BitmapFile(uint8_t* bitmap, int size, int w, int h,
                                        int64_t pts, int objectSegmentId, int objectId)
 {
     if (!bitmap) {
-        SUBTITLE_LOGE("%s: null bitmap\n", __func__);
+        SUBTITLE_LOGE("%s: null bitmap", __func__);
         return;
     }
 

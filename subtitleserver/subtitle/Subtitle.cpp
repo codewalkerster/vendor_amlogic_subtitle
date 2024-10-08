@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -96,19 +96,25 @@ Subtitle::~Subtitle() {
 
     if (mThread != nullptr) {
         mThread->join();
+        mThread = nullptr;
     }
 
     if (mParser != nullptr) {
         mParser->stopParser();
-        mPresentation->stopPresent();
         mParser = nullptr;
+    }
+
+    if (mPresentation) {
+        mPresentation->stopPresent();
+        mPresentation = nullptr;
     }
 
     SUBTITLE_LOGI("%s end", __func__);
 }
 
-void Subtitle::attachDataSource(std::shared_ptr<DataSource> source, std::shared_ptr<InfoChangeListener>listener) {
-     SUBTITLE_LOGI("%s", __func__);
+void Subtitle::attachDataSource(std::shared_ptr<DataSource> source,
+    std::shared_ptr<InfoChangeListener>listener) {
+    SUBTITLE_LOGI("%s", __func__);
     mDataSource = source;
     mDataSource->registerInfoListener(listener);
     mDataSource->start();

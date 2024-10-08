@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -130,7 +130,7 @@ public:
         return mParseType;
     }
 
-    bool stopParser() {
+    virtual bool stopParser() {
         { // narrow the lock scope
             std::unique_lock<std::mutex> autolock(mMutex);
             mDecodedSpu.clear();
@@ -141,6 +141,7 @@ public:
             mThreadExitRequested = true;
         }
         mThread.join();
+        SUBTITLE_LOGI("%s: END", __func__);
         return true;
     }
 
@@ -186,7 +187,7 @@ public:
         }
 
         // validate the item: do not sent empty items due to parser error.
-        if (item == nullptr ) {
+        if (item == nullptr) {
             SUBTITLE_LOGE("%s: add invalid empty spu!", __func__);
             return;
         }
@@ -200,8 +201,22 @@ public:
         return mParseType == TYPE_SUBTITLE_EXTERNAL;
     }
     virtual void dump(int fd, const char *prefix) = 0;
-    std::shared_ptr<DataSource> mDataSource;
+    virtual void notifyRenderStartTimestamp(int64_t startTime)
+    {
+        SUBTITLE_LOGI("%s: startTime=%" PRId64, __func__, startTime);
+        std::unique_lock<std::mutex> autolock(mMutex);
+        mStartTime = startTime;
+        mPresentationTime = startTime;
+    }
 
+    virtual void notifyRenderTimeChanged(int64_t renderTime)
+    {
+        std::unique_lock<std::mutex> autolock(mMutex);
+        mCurrentRenderTime = renderTime;
+        mPresentationTime = renderTime + mStartTime;
+    }
+
+    std::shared_ptr<DataSource> mDataSource;
 
 protected:
     ParserEventNotifier *mNotifier;
@@ -212,6 +227,10 @@ protected:
     int mParseType;
     int mMaxSpuItems;
     int64_t mPtsRecord = 0;
+
+    int64_t mStartTime = 0;
+    int64_t mCurrentRenderTime = 0;
+    int64_t mPresentationTime = 0;
 
     void dumpCommon(int fd, const char *prefix) {
         dprintf(fd, "%s DataSource=%p\n", prefix, mDataSource.get());

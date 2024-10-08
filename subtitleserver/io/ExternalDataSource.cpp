@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -64,6 +64,12 @@ ExternalDataSource::~ExternalDataSource() {
 }
 
 bool ExternalDataSource::notifyInfoChange_l(int type) {
+    if (mState == E_SOURCE_STOPPED) {
+        SUBTITLE_LOGI("%s: return as already stopped", __func__);
+        return false;
+    }
+
+    std::unique_lock<std::mutex> autolock(mLock);
     for (auto it = mInfoListeners.begin(); it != mInfoListeners.end(); it++) {
         auto wk_listener = (*it);
         if (auto lstn = wk_listener.lock()) {
@@ -156,9 +162,9 @@ bool ExternalDataSource::stop() {
     return true;
 }
 
-    SubtitleIOType ExternalDataSource::type() {
-        return E_SUBTITLE_FMQ;
-    }
+SubtitleIOType ExternalDataSource::type() {
+    return E_SUBTITLE_FMQ;
+}
 
 size_t ExternalDataSource::read(void *buffer, size_t size) {
     int read = 0;

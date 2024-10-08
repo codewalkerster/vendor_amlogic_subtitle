@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -480,7 +480,6 @@ bool SubtitleService::stopSubtitle() {
 
     if (mSubtiles != nullptr) {
         mSubtiles->dettachDataSource(mSubtiles);
-        mSubtiles = nullptr;
     }
 
     if (mFmqReceiver != nullptr && mDataSource != nullptr) {

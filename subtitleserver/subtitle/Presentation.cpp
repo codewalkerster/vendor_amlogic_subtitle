@@ -44,6 +44,7 @@
 
 #define MAX_ALLOWED_EXT_SPU_NUM 1000
 #define MAX_ALLOWED_STREAM_SPU_NUM 10
+
 #define MAX_ALLOWED_QUEUED_MEM  (5*1920*1080*4)
 
 #define TSYNC_32_BIT_PTS 0xFFFFFFFF
@@ -150,12 +151,13 @@ void reAssembleSpuList(std::list<std::shared_ptr<AML_SPUVAR>> &list) {
 }
 
 
-
 Presentation::Presentation(std::shared_ptr<Display> disp) :
     mCurrentPresentRelativeTime(0),
     mStartPresentMonoTimeNs(0),
     mStartTimeModifier(0)
 {
+    SUBTITLE_LOGI("enter %s", __func__);
+
     std::unique_lock<std::mutex> autolock(mMutex);
     mDisplay = disp;
     mRender = std::shared_ptr<Render>(new AndroidHidlRemoteRender/*SkiaRenderI*/(disp));
@@ -163,6 +165,8 @@ Presentation::Presentation(std::shared_ptr<Display> disp) :
 }
 
 Presentation::~Presentation() {
+    SUBTITLE_LOGI("enter %s", __func__);
+
     //TODO: do we need poke thread exit immediately? by post a message?
     //      then need add a lock, for protect access mLooper in multi-thread
     std::unique_lock<std::mutex> autolock(mMutex);
@@ -196,6 +200,9 @@ bool Presentation::syncCurrentPresentTime(int64_t pts) {
         return false;
     }
     mCurrentPresentRelativeTime = convertDvbTime2Ns(pts);
+    if (mParser) {
+        mParser->notifyRenderTimeChanged(pts);
+    }
 
     // the time
     mStartPresentMonoTimeNs = systemTime(SYSTEM_TIME_MONOTONIC) - convertDvbTime2Ns(pts);
@@ -222,16 +229,25 @@ bool Presentation::syncCurrentPresentTime(int64_t pts) {
 
 
 bool Presentation::startPresent(std::shared_ptr<Parser> parser) {
-    std::unique_lock<std::mutex> autolock(mMutex);
+    SUBTITLE_LOGI("enter %s", __func__);
     if (parser == nullptr) {
         SUBTITLE_LOGE("[%s:%d] Error! parser is nullptr", __func__, __LINE__);
         return false;
     }
     mParser = parser;
-    mMsgProcess = new MessageProcess(this, parser->isExternalSub());
+    mParser->notifyRenderStartTimestamp(convertNs2DvbTime(mStartTimeModifier));
+    {
+        // mMutex is for mMsgProcess.
+        // Don't lock mParser as which has its own lock
+        // std::unique_lock<std::mutex> autolock(mMutex);
+        std::unique_lock<std::mutex> autolock(mMutex);
+        mMsgProcess = new MessageProcess(this, parser->isExternalSub());
+    }
     return true;
 }
+
 bool Presentation::stopPresent() {
+    SUBTITLE_LOGI("enter %s", __func__);
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
         //delete mMsgProcess;
@@ -539,7 +555,8 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                               ns2ms(mPresent->mStartTimeModifier),
                               spu->objectSegmentId,
                               spu->pts, spu->pts/DVB_TIME_MULTI,
-                              spu->pts/DVB_TIME_MULTI - ns2ms(mPresent->mCurrentPresentRelativeTime),
+                              spu->pts/DVB_TIME_MULTI - ns2ms(mPresent->mCurrentPresentRelativeTime)
+                              - ns2ms(mPresent->mStartTimeModifier),
                               spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
                               spu->spu_data, spu->buffer_size,
                               spu->subtitle_type,
@@ -576,7 +593,8 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                                   spu->isExtSub, ns2ms(timestamp), ns2ms(mPresent->mStartTimeModifier),
                                   ns2ms(mPresent->mCurrentPresentRelativeTime),
                                   spu->pts, spu->pts/DVB_TIME_MULTI,
-                                  spu->pts/DVB_TIME_MULTI - ns2ms(mPresent->mCurrentPresentRelativeTime),
+                                  spu->pts/DVB_TIME_MULTI - ns2ms(mPresent->mCurrentPresentRelativeTime)
+                                  - ns2ms(mPresent->mStartTimeModifier),
                                   spu->m_delay/DVB_TIME_MULTI);
                 }
 
@@ -665,7 +683,8 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                                       ns2ms(mPresent->mStartTimeModifier),
                                       spu->objectSegmentId,
                                       spu->pts, spu->pts/DVB_TIME_MULTI,
-                                      spu->pts/DVB_TIME_MULTI - ns2ms(mPresent->mCurrentPresentRelativeTime),
+                                      spu->pts/DVB_TIME_MULTI - ns2ms(mPresent->mCurrentPresentRelativeTime)
+                                      - ns2ms(mPresent->mStartTimeModifier),
                                       spu->m_delay, spu->m_delay/DVB_TIME_MULTI,
                                       spu->spu_data, spu->buffer_size,
                                       mPresent->mEmittedShowingSpu.size());
@@ -698,7 +717,9 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
                              mPresent->mRender->showSubtitleItem(spu, mPresent->mParser->getParseType());
                         }
                         // fix fadding time, if not valid.
-                        if (spu->isImmediatePresent) {
+                        // Note: PGS has its own presentation solution, the delay time is calculated
+                        //       correctly in it.
+                        if (spu->isImmediatePresent && (spu->m_delay == 0 || spu->m_delay == spu->pts)) {
                             // immediatePresent no pts, this may affect the fading calculate.
                             // apply the real pts and fading delay.
                             spu->pts = convertNs2DvbTime(timestamp);
