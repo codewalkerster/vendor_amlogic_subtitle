@@ -135,20 +135,21 @@ bool FmqReceiver::readLoop() {
 
                 char *payloads = (char *) malloc(curHeader.dataSize +4);
                 if (!payloads) {
-                    SUBTITLE_LOGE("%s payload malloc error! \n", __func__, __LINE__);
+                    SUBTITLE_LOGE("%s payload malloc error!", __func__);
                     continue;
                 }
                 memcpy(payloads, &curHeader.pkgType, 4); // fill package type
                 ringbuffer_read(bufferHandle, payloads+4, curHeader.dataSize, RBUF_MODE_BLOCK);
                 {  // notify listener
                     std::lock_guard<std::mutex> guard(mLock);
-                    std::shared_ptr<DataListener> listener = mClients.front();
-                    //SUBTITLE_LOGI("payload listener=%p type=%x, %d", listener.get(), peekAsSocketWord(payloads), curHeader.dataSize);
-                    if (listener != nullptr) {
-                        if (listener->onData(payloads, curHeader.dataSize+4) < 0) {
-                            //for some ext and internal sub switch, if here return, then ext sub(now this no data) switch
-                            //to internal will no sub. so not return.
-                            SUBTITLE_LOGE("%s no need free buffer handle, need wait stop now! \n", __func__);
+                    if (mClients.size() > 0) {
+                        auto listener = mClients.front();
+                        if (listener != nullptr) {
+                            if (listener->onData(payloads, curHeader.dataSize + 4) < 0) {
+                                // For some ext and internal sub switch, if here return, then ext sub(now this no data)
+                                // switch to internal will no sub. so not return.
+                                SUBTITLE_LOGE("%s no need free buffer handle, need wait stop now!", __func__);
+                            }
                         }
                     }
                 }
