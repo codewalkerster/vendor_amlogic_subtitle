@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -38,6 +38,8 @@
 
 //TODO: move to utils directory
 ExtParser::ExtParser(std::shared_ptr<DataSource> source, int trackId) {
+    SUBTITLE_LOGI("enter %s", __func__);
+
     mDataSource = source;
     mParseType = TYPE_SUBTITLE_EXTERNAL;
 
@@ -56,7 +58,7 @@ ExtParser::ExtParser(std::shared_ptr<DataSource> source, int trackId) {
 }
 
 ExtParser::~ExtParser() {
-    SUBTITLE_LOGI("%s", __func__);
+    SUBTITLE_LOGI("enter %s", __func__);
     // call back may call parser, parser later destroy
     mSubIndex = 0;
 }
@@ -65,7 +67,6 @@ ExtParser::~ExtParser() {
 void ExtParser::resetForSeek() {
     mSubIndex = 0;
 }
-
 
 int ExtParser::getSpu() {
     int ret = -1;
@@ -79,7 +80,6 @@ int ExtParser::getSpu() {
     }
     return ret;
 }
-
 
 int ExtParser::parse() {
     if (!mThreadExitRequested) {

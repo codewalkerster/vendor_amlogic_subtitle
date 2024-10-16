@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -28,16 +28,17 @@
 
 #include "TextSubtitle.h"
 
-
+// Parse subtitle format similar as Lyrics.
 class Vplayer: public TextSubtitle {
 public:
-    Vplayer(std::shared_ptr<DataSource> source);
+    explicit Vplayer(std::shared_ptr<DataSource> source);
     ~Vplayer();
 
 protected:
-    virtual std::shared_ptr<ExtSubItem> decodedItem();
-    char *mBuffer;
-    bool mReuseBuffer;
+    std::shared_ptr<ExtSubItem> decodedItem() override;
+
+private:
+    static constexpr int BUFFER_SIZE = LINE_LEN + 1;
+    char* mBuffer = nullptr;
+    bool mHasPendingItemForEndTime = false;
 };
-
-

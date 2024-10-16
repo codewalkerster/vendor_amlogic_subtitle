@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -24,59 +24,84 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define LOG_TAG "Vplayer"
+#define LOG_TAG "Extsubtitle_Vplayer"
 
 #include "Vplayer.h"
 
-// Parse similar as Lyrics.
-Vplayer::Vplayer(std::shared_ptr<DataSource> source): TextSubtitle(source) {
-    mBuffer = new char[LINE_LEN + 1]();
-    mReuseBuffer = false;
+Vplayer::Vplayer(std::shared_ptr<DataSource> source): TextSubtitle(source)
+{
+    mBuffer = new char[BUFFER_SIZE]();
+    if (!mBuffer) {
+        SUBTITLE_LOGE("%s: fail to new mBuffer", __func__);
+    }
 }
 
-Vplayer::~Vplayer() {
+Vplayer::~Vplayer()
+{
     delete[] mBuffer;
 }
-std::shared_ptr<ExtSubItem> Vplayer::decodedItem() {
-    int a1, a2, a3;
-    char text[LINE_LEN + 1];
-    int pattenLen;
+
+// protected
+// ==================
+std::shared_ptr<ExtSubItem> Vplayer::decodedItem()
+{
+    if (!mBuffer) {
+        SUBTITLE_LOGE("%s: null buffer", __func__);
+        return nullptr;
+    }
+
+    int a1 = 0;
+    int a2 = 0;
+    int a3 = 0;
+    char text[BUFFER_SIZE] = {0};
+    int pattenLen = 0;
 
     while (true) {
-        if (!mReuseBuffer) {
+        // Read new line if there is no pending item to wait end item.
+        if (!mHasPendingItemForEndTime) {
+            memset(mBuffer, 0, sizeof(mBuffer));
             if (mReader->getLine(mBuffer) == nullptr) {
                 return nullptr;
             }
         }
 
-        // parse start and text
+        // Parse pending line or new line.
         if (sscanf(mBuffer, "%d:%d:%d:%[^\n\r]", &a1, &a2, &a3, text) < 4) {
-            mReuseBuffer = false;
-            // fail, check again.
+            // The begin line must be a correct subtitle line, skip the line if not.
+            mHasPendingItemForEndTime = false;
             continue;
         }
 
-        std::shared_ptr<ExtSubItem> item = std::shared_ptr<ExtSubItem>(new ExtSubItem());
+        // Make the spu item.
+        auto item = std::make_shared<ExtSubItem>();
         item->start =  a1 * 360000 + a2 * 6000 + a3 * 100;
         item->end = item->start + 200;
         item->lines.push_back(std::string(text));
 
-        // get time End, maybe has end time, maybe not, handle this case.
+        // Read one more line to check the end time.
+        memset(mBuffer, 0, sizeof(mBuffer));
         if (mReader->getLine(mBuffer) == nullptr) {
-            return item;
-        }
-        // has end??
-        pattenLen = sscanf(mBuffer, "%d:%d:%d:%[^\n\r]", &a1, &a2, &a3, text);
-        if (pattenLen == 4) {
-            mReuseBuffer = true;
-            return item;
-        } else if (pattenLen == 3) {
-            item->end = a1 * 360000 + a2 * 6000 + a3 * 100;
+            // Run one more time to stop it.
+            mHasPendingItemForEndTime = false;
+            return std::move(item);
         }
 
-        mReuseBuffer = false;
-        return item;
+        // Check the next line if which is an end time line
+        pattenLen = sscanf(mBuffer, "%d:%d:%d:%[^\n\r]", &a1, &a2, &a3, text);
+        if (pattenLen == 4) {
+            // Which is not a end time line
+            mHasPendingItemForEndTime = true;
+            return std::move(item);
+        } else if (pattenLen == 3) {
+            // Found the end time line
+            mHasPendingItemForEndTime = false;
+            item->end = a1 * 360000 + a2 * 6000 + a3 * 100;
+            return std::move(item);
+        }
+
+        // Found an unexpected line, continue to read the next line.
+        mHasPendingItemForEndTime = false;
+        SUBTITLE_LOGE("%s: unexpected line: %s", __func__, mBuffer);
     }
     return nullptr;
 }
-

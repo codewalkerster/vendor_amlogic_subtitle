@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -38,7 +38,6 @@ TextSubtitle::TextSubtitle(std::shared_ptr<DataSource> source) {
 }
 
 bool TextSubtitle::decodeSubtitles(int idxSubTrackId) {
-
     mSource->lseek(0, SEEK_SET);
     //mPtsRate = 15;       //24;//default value
 
@@ -46,23 +45,19 @@ bool TextSubtitle::decodeSubtitles(int idxSubTrackId) {
 
     SUBTITLE_LOGI("decodeSubtitles....");
     while (true) {
-
         std::shared_ptr<ExtSubItem> item = this->decodedItem();
         if (item == nullptr) {
             break; // No more data, EOF found.
         }
 
-
         // TODO: how to handle error states.
-
-
         item->start = sub_ms2pts(item->start);
         item->end = sub_ms2pts(item->end);
 
         mSubData.subtitles.push_back(item);
     }
 
-    //dump(0, nullptr);
+    // dump(0, nullptr);
     return true;
 }
 
@@ -71,7 +66,7 @@ std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem() {
     if (totalItems() <= 0) {
         return nullptr;
     }
-    SUBTITLE_LOGI("TextSubtitle::popDecodedItem");
+
     std::shared_ptr<ExtSubItem> item = mSubData.subtitles.front();
     mSubData.subtitles.pop_front();
     std::shared_ptr<AML_SPUVAR> spu(new AML_SPUVAR());
@@ -119,5 +114,3 @@ void TextSubtitle::dump(int fd, const char *prefix) {
         }
     }
 }
-
-

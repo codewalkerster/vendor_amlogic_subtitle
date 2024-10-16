@@ -86,17 +86,17 @@ Subtitle::Subtitle(bool isExtSub, int trackId, ParserEventNotifier *notifier) :
 
 Subtitle::~Subtitle() {
     SUBTITLE_LOGI("%s", __func__);
-    //android::CallStack(LOG_TAG);
+
     mExitRequested = true;
     mCv.notify_all();
-
-    if (mDataSource != nullptr) {
-        mDataSource->stop();
-    }
-
     if (mThread != nullptr) {
         mThread->join();
         mThread = nullptr;
+    }
+
+    if (mDataSource != nullptr) {
+        mDataSource->stop();
+        mDataSource = nullptr;
     }
 
     if (mParser != nullptr) {
@@ -240,9 +240,12 @@ void Subtitle::run() {
     while (!mExitRequested) {
         std::unique_lock<std::mutex> autolock(mMutex);
         mCv.wait_for(autolock, std::chrono::milliseconds(100));
+        if (mExitRequested) {
+            break;
+        }
 
         if (mIsExtSub && mParser == nullptr) {
-            mSubPrams->subType = TYPE_SUBTITLE_EXTERNAL;// if mFd > 0 is Ext sub
+            mSubPrams->subType = TYPE_SUBTITLE_EXTERNAL; // if mFd > 0 is Ext sub
             mSubPrams->idxSubTrackId = mIdxSubTrack;
             mParser = ParserFactory::create(mSubPrams, mDataSource);
             if (mParser == nullptr) {
@@ -255,7 +258,8 @@ void Subtitle::run() {
                 ret = mPresentation->startPresent(mParser);
             }
             mPendingAction = -1; // No need handle
-        }else if(mIsExtSub && mParser->getParseType() == TYPE_SUBTITLE_CLOSED_CAPTION){
+        }
+        else if(mIsExtSub && mParser->getParseType() == TYPE_SUBTITLE_CLOSED_CAPTION) {
             /*
              * When ccparser is created by default,
              * it can be changed to the correct parser type
@@ -382,7 +386,7 @@ void Subtitle::run() {
         }
 
         if (mParser == nullptr) {
-            int value = (mSubPrams->closedCaptionParam.ChannelID >> 8) == 1? 1:(mSubPrams->playerId > 0 ? 1:0);
+            int value = (mSubPrams->closedCaptionParam.ChannelID >> 8) == 1 ? 1:(mSubPrams->playerId > 0 ? 1 : 0);
             if (value) {
                 SUBTITLE_LOGI("No parser found, create default!");
                 // start default parser, normally, this is CC
@@ -399,7 +403,6 @@ void Subtitle::run() {
                 }
             }
         }
-
     }
 
     SUBTITLE_LOGI("Exit: run mExitRequested:%d, mSubPrams->subType:%d", mExitRequested, mSubPrams->subType);
