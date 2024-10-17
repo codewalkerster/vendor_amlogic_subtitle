@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -26,13 +26,13 @@
 
 #ifndef _EXT_PARSER_FACTORY_H__
 #define _EXT_PARSER_FACTORY_H__
-#include <memory>
 
+#include <memory>
 #include "DataSource.h"
 #include "TextSubtitle.h"
 
-class ExtSubFactory {
-
+class ExtSubFactory
+{
 public:
     static std::shared_ptr<TextSubtitle> create(std::shared_ptr<DataSource> source);
 
@@ -40,5 +40,5 @@ private:
     static int detect(std::shared_ptr<DataSource> source);
     static int detectXml(std::shared_ptr<DataSource> source);
 };
-#endif
 
+#endif //_EXT_PARSER_FACTORY_H__

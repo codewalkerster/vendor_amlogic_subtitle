@@ -45,17 +45,17 @@ enum ExtSubtitleType {
     SUB_PJS,
     SUB_MPSUB,    //8
     SUB_AQTITLE,
-    SUB_SUBVIEWER2,
+    SUB_SUBVIEWER2, // 10
     SUB_SUBVIEWER3,
     SUB_SUBRIP09,
     SUB_JACOSUB,
     SUB_MPL1,
-    SUB_MPL2,
+    SUB_MPL2,  // 15
     SUB_XML,
     SUB_TTML,
     SUB_LRC,
     SUB_DIVX,
-    SUB_WEBVTT,
+    SUB_WEBVTT,  // 20
     SUB_IDXSUB,
 };
 

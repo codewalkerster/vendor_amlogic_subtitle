@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -138,7 +138,7 @@ typedef struct alm_spuvar
         if (isImmediatePresent) {
             dprintf(fd, "ImmediatePresent ");
         } else {
-            dprintf(fd, "pts=%lld delayTo=%lld ", pts, m_delay);
+            dprintf(fd, "pts=%" PRId64 " delayTo=%" PRId64, pts, m_delay);
         }
 
         if (isSimpleText) {

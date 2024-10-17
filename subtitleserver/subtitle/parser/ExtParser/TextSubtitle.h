@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -77,7 +77,7 @@ struct ExtSubData {
 class TextSubtitle {
 public:
     TextSubtitle() = delete;
-    TextSubtitle(std::shared_ptr<DataSource> source);
+    explicit TextSubtitle(std::shared_ptr<DataSource> source);
     virtual  ~TextSubtitle() {}
 
     bool decodeSubtitles(int idxSubTrackId);

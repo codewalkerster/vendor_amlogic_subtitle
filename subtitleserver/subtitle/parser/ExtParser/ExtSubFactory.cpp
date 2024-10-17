@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -29,9 +29,7 @@
 #include "ParserFactory.h"
 #include "ExtSubFactory.h"
 #include "ExtSubStreamReader.h"
-
 #include "tinyxml2.h"
-
 #include "SubStationAlpha.h"
 #include "Subrip.h"
 #include "Aqtitle.h"
@@ -52,33 +50,25 @@
 #include "SubViewer2.h"
 #include "SubViewer3.h"
 #include "VobSubIndex.h"
-
-
-#if 0
-#include "ExtParserEbuttd.h"
-#endif
 #include "WebVtt.h"
 
-int ExtSubFactory::detect(std::shared_ptr<DataSource> source) {
-    char line[LINE_LEN + 1];
-    int i, maxLineDetect = 100;
-    char p;
-    //char q[512];
-
-    std::shared_ptr<ExtSubStreamReader> reader = std::shared_ptr<ExtSubStreamReader>(new ExtSubStreamReader(0, source));
+int ExtSubFactory::detect(std::shared_ptr<DataSource> source)
+{
+    auto reader = std::make_shared<ExtSubStreamReader>(0, source);
     if (reader == NULL) {
         SUBTITLE_LOGI("can't get ext subtitle format");
         return SUB_INVALID;
     }
 
-
-    while (maxLineDetect-- > 0) {
-        SUBTITLE_LOGI("%d", maxLineDetect);
-
+    int maxLineDetect = 0;
+    while (maxLineDetect < 100) {
+        char line[LINE_LEN + 1] = {0};
         if (!reader->getLine(line)) {
             return SUB_INVALID;
         }
-        SUBTITLE_LOGI("%s", line);
+
+        SUBTITLE_LOGI("%s: line_%2d = %s", __func__, maxLineDetect, line);
+        int i = 0;
         if (sscanf(line, "{%d}{%d}", &i, &i) == 2) {
             return SUB_MICRODVD;
         }
@@ -90,7 +80,6 @@ int ExtSubFactory::detect(std::shared_ptr<DataSource> source) {
         if (strncmp(line, "WEBVTT", 6) == 0) {
             return SUB_WEBVTT;
         }
-
 
         if (sscanf(line, "%d,%d,%d", &i, &i, &i) == 3) {
             return SUB_MPL1;
@@ -104,7 +93,8 @@ int ExtSubFactory::detect(std::shared_ptr<DataSource> source) {
             return SUB_SUBRIP;
         }
 
-        if (sscanf(line, "%d:%d:%d%[,.:]%d --> %d:%d:%d%[,.:]%d", &i, &i, &i, (char *)&i, &i, &i, &i, &i, (char *)&i, &i) == 10) {
+        if (sscanf(line, "%d:%d:%d%[,.:]%d --> %d:%d:%d%[,.:]%d",
+            &i, &i, &i, (char *)&i, &i, &i, &i, &i, (char *)&i, &i) == 10) {
             return SUB_SUBVIEWER;
         }
 
@@ -141,7 +131,6 @@ int ExtSubFactory::detect(std::shared_ptr<DataSource> source) {
         }
 
         if (strstr(line, "<?xml")) {
-            //return SUB_XML;
             return detectXml(source);
         }
 
@@ -163,21 +152,26 @@ int ExtSubFactory::detect(std::shared_ptr<DataSource> source) {
         if (!memcmp(line, "Dialogue: ", 10)) {
             return SUB_SSA;
         }
+
         if (sscanf(line, "%d,%d,\"%c", &i, &i, (char *)&i) == 3) {
             return SUB_PJS;
         }
         if (sscanf(line, "%d,%d, \"%c", &i, &i, (char *)&i) == 3) {
             return SUB_PJS;
         }
+
         if (sscanf(line, "FORMAT=%d", &i) == 1) {
             return SUB_MPSUB;
         }
+        char p = 0;
         if (sscanf(line, "FORMAT=TIM%c", &p) == 1 && p == 'E') {
             return SUB_MPSUB;
         }
+
         if (strstr(line, "-->>")) {
             return SUB_AQTITLE;
         }
+
         if (sscanf(line, "[%d:%d:%d]", &i, &i, &i) == 3) {
             return SUB_SUBRIP09;
         }
@@ -190,92 +184,78 @@ int ExtSubFactory::detect(std::shared_ptr<DataSource> source) {
         if (sscanf(line, "[%d:%d:%d]", &i, &i, &i) == 3) {
             return SUB_SUBRIP09;
         }
-    }
-    return SUB_INVALID; // too many bad lines
 
+        std::string value = line;
+        if (value.find("{QTtext}") != std::string::npos
+            || value.find("{QTText}") != std::string::npos) {
+            SUBTITLE_LOGE("%s: unsupport ext_subtitle QTtext by now", __func__);
+            return SUB_INVALID;
+        }
+
+        ++maxLineDetect;
+    }
+
+    SUBTITLE_LOGE("%s: found unsupported ext_subtitle format", __func__);
+    return SUB_INVALID;
 }
 
-// TODO: more....
-std::shared_ptr<TextSubtitle> ExtSubFactory::create(std::shared_ptr<DataSource> source) {
+std::shared_ptr<TextSubtitle> ExtSubFactory::create(std::shared_ptr<DataSource> source)
+{
     int format = detect(source);
-    SUBTITLE_LOGI("detect ext subtitle format = %d", format);
+    SUBTITLE_LOGI("%s: detect ext_subtitle format = %d", __func__, format);
 
    switch (format) {
-
-        case SUB_MICRODVD://0
+        case SUB_MICRODVD: // 0
             return std::shared_ptr<TextSubtitle> (new Mircodvd(source));
-
-        case SUB_SUBRIP://1
+        case SUB_SUBRIP: // 1
             return std::shared_ptr<TextSubtitle> (new Subrip(source));
-
-        case SUB_SAMI://3
+        case SUB_SAMI: // 3
             return std::shared_ptr<TextSubtitle> (new Sami(source));
-
-        case SUB_SUBVIEWER://2
+        case SUB_SUBVIEWER: // 2
             return std::shared_ptr<TextSubtitle> (new SubViewer(source));
-
-        case SUB_VPLAYER://4
+        case SUB_VPLAYER: // 4
             return std::shared_ptr<TextSubtitle> (new Vplayer(source));
-
-        case SUB_RT://5
+        case SUB_RT: // 5
             return std::shared_ptr<TextSubtitle> (new RealText(source));
-
-        case SUB_SSA://6
+        case SUB_SSA: // 6
             return std::shared_ptr<TextSubtitle> (new SubStationAlpha(source));
-
-        case SUB_PJS://7
+        case SUB_PJS: // 7
             return std::shared_ptr<TextSubtitle> (new Pjs(source));
-
-        case SUB_MPSUB://8
+        case SUB_MPSUB: // 8
             return std::shared_ptr<TextSubtitle> (new Mpsub(source));
-
-        case SUB_AQTITLE://9
+        case SUB_AQTITLE: // 9
             return std::shared_ptr<TextSubtitle> (new Aqtitle(source));
-
-        case SUB_SUBVIEWER2://10
+        case SUB_SUBVIEWER2: // 10
             return std::shared_ptr<TextSubtitle> (new SubViewer2(source));
-
-        case SUB_SUBVIEWER3://11
+        case SUB_SUBVIEWER3: // 11
             return std::shared_ptr<TextSubtitle> (new SubViewer3(source));
-
-        case SUB_SUBRIP09://12
+        case SUB_SUBRIP09: // 12
             return std::shared_ptr<TextSubtitle> (new Subrip09(source));
-
-        case SUB_JACOSUB://13
+        case SUB_JACOSUB: // 13
            return std::shared_ptr<TextSubtitle> (new Jacosub(source));
-
-        case SUB_MPL1://14
+        case SUB_MPL1: // 14
             return std::shared_ptr<TextSubtitle> (new Mplayer1(source));
-
-        case SUB_MPL2://15
+        case SUB_MPL2: // 15
             return std::shared_ptr<TextSubtitle> (new Mplayer2(source));
-
-        case SUB_XML://16
+        case SUB_XML: // 16
             return std::shared_ptr<TextSubtitle> (new XmlSubtitle(source));
-
-        case SUB_TTML://17
+        case SUB_TTML: // 17
             return std::shared_ptr<TextSubtitle> (new TTML(source));
-
-        case SUB_LRC://18
+        case SUB_LRC: //18
             return std::shared_ptr<TextSubtitle> (new Lyrics(source));
-
-/*        case SUB_EBUTTD:
-            return std::shared_ptr<Parser> (new ExtParserEbuttd(source));
-        */
-        case SUB_WEBVTT:
+        case SUB_WEBVTT: // 20
             return std::shared_ptr<TextSubtitle>(new SimpleWebVtt(source));
-
-        case SUB_IDXSUB:
+        case SUB_IDXSUB: // 21
         return std::shared_ptr<TextSubtitle>(new VobSubIndex(source));
-
         default:
-            SUBTITLE_LOGI("ext subtitle format is invalid! format = %d", format);
-            return NULL;
+            SUBTITLE_LOGE("%s: unsupport ext_subtitle format = %d", __func__, format);
+            return nullptr;
     }
-    return NULL;
+    return nullptr;
 }
 
-int ExtSubFactory::detectXml(std::shared_ptr<DataSource> source) {
+int ExtSubFactory::detectXml(std::shared_ptr<DataSource> source)
+{
     int type = SUB_XML;
     tinyxml2::XMLDocument doc;
 
@@ -286,12 +266,7 @@ int ExtSubFactory::detectXml(std::shared_ptr<DataSource> source) {
     doc.Parse(rdBuffer);
 
     if (doc.FirstChildElement("tt") || doc.FirstChildElement("tt:tt")) {
-        //tinyxml2::XMLElement* tt = doc.RootElement();
-        //if (tt->Attribute("xmlns:ebuttm")) {
-        //    type = SUB_EBUTTD;
-        //} else {
-            type = SUB_TTML;
-        //}
+        type = SUB_TTML;
     }
 
     doc.Clear();
