@@ -31,8 +31,7 @@
 #include "ExtSubStreamReader.h"
 #include "SubtitleTypes.h"
 
-#define SUB_MAX_TEXT                30
-
+#define SUB_MAX_TEXT  30
 #define sub_ms2pts(x) ((x) * 900)
 #define sub_pts2ms(x) ((x) / 900)
 
@@ -49,20 +48,19 @@ typedef enum
     SUB_ALIGNMENT_TOPRIGHT
 } sub_alignment_t;
 
-struct ExtSubItem{
-    bool valid;     // get one item, but invalid!
-    int64_t start;      /* start time */
-    int64_t end;        /* end time */
+struct ExtSubItem {
+    int64_t start;      // start 90K pts
+    int64_t end;        // end 90K pts
 
     // === for IDX-SUB
     int subId; // one subtitle file may have many lang subs, this for select...
     long long filePos;
     // === END IDX-SUB
 
-    /// number of subtitle lines, can be multi-line
+    // Number of subtitle lines, can be multi-line
     std::list<std::string> lines;
 
-    /// alignment of subtitles
+    // Alignment of subtitles
     sub_alignment_t alignment;
 };
 
@@ -74,24 +72,24 @@ struct ExtSubData {
     std::list<std::shared_ptr<ExtSubItem>> subtitles;
 };
 
-class TextSubtitle {
+class TextSubtitle
+{
 public:
     TextSubtitle() = delete;
     explicit TextSubtitle(std::shared_ptr<DataSource> source);
-    virtual  ~TextSubtitle() {}
+    virtual ~TextSubtitle() = default;
 
     bool decodeSubtitles(int idxSubTrackId);
-
     int totalItems();
-    virtual std::shared_ptr<AML_SPUVAR> popDecodedItem();
 
+    virtual std::shared_ptr<AML_SPUVAR> popDecodedItem();
     virtual void dump(int fd, const char *prefix);
 
 protected:
-    virtual std::shared_ptr<ExtSubItem> decodedItem() = 0;
     ExtSubData mSubData;
     std::shared_ptr<DataSource> mSource;
     std::shared_ptr<ExtSubStreamReader> mReader;
-
     int mIdxSubTrackId = -1;
+
+    virtual std::shared_ptr<ExtSubItem> decodedItem() = 0;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -28,15 +28,15 @@
 
 #include "TextSubtitle.h"
 
-class Mircodvd: public TextSubtitle {
-
+class Mircodvd: public TextSubtitle
+{
 public:
-    Mircodvd(std::shared_ptr<DataSource> source);
-    ~Mircodvd();
+    explicit Mircodvd(std::shared_ptr<DataSource> source);
+    ~Mircodvd() = default;
 
 protected:
-    virtual std::shared_ptr<ExtSubItem> decodedItem();
+    std::shared_ptr<ExtSubItem> decodedItem() override;
+
+private:
     int mPtsRate;
 };
-
-

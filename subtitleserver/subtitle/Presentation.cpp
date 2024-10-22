@@ -61,9 +61,13 @@ static const int64_t ONE_SECONDS_NS = 1*1000*1000*1000LL;
 static const int64_t ADDJUST_VERY_SMALL_PTS_MS = 5*1000LL;
 static const int64_t ADDJUST_NO_PTS_MS = 4*1000LL;
 
+#define INVALID_PTS 0x1ffffffff
 
 static bool mSubtitlePts32Bit = false;
-static inline int64_t convertDvbTime2Ns(int64_t dvbMillis) {
+
+namespace {
+static inline int64_t convertDvbTime2Ns(int64_t dvbMillis)
+{
     return ms2ns(dvbMillis)/DVB_TIME_MULTI; // dvbTime is multi 90.
 }
 
@@ -71,7 +75,8 @@ static inline int64_t convertNs2DvbTime(int64_t ns) {
     return ns2ms(ns)*DVB_TIME_MULTI;
 }
 
-static size_t totalQueuedMemSize(std::list<std::shared_ptr<AML_SPUVAR>> &list) {
+static size_t totalQueuedMemSize(std::list<std::shared_ptr<AML_SPUVAR>> &list)
+{
     size_t size = 0;
     // Calculate the size of all subtitles in the cache
     if (list.size() > 0) {
@@ -82,11 +87,13 @@ static size_t totalQueuedMemSize(std::list<std::shared_ptr<AML_SPUVAR>> &list) {
     return size;
 }
 
-static bool cmpSpu(std::shared_ptr<AML_SPUVAR> a, std::shared_ptr<AML_SPUVAR> b) {
+static bool cmpSpu(std::shared_ptr<AML_SPUVAR> a, std::shared_ptr<AML_SPUVAR> b)
+{
     return a->pts < b->pts;
 }
 
-static inline int64_t fixSpuDelay(int64_t pts, int64_t delay) {
+static inline int64_t fixSpuDelay(int64_t pts, int64_t delay)
+{
     if (delay <= 0 || delay <= pts+500*DVB_TIME_MULTI) {
         return pts + (ADDJUST_NO_PTS_MS * DVB_TIME_MULTI);
     }
@@ -96,30 +103,32 @@ static inline int64_t fixSpuDelay(int64_t pts, int64_t delay) {
 
 // Typically, only one spu, but some case maybe 2 or 3
 static std::shared_ptr<AML_SPUVAR> getShowingSpuFromList(
-        std::list<std::shared_ptr<AML_SPUVAR>> &list) {
-    if (list.size() == 0) return nullptr;
+        std::list<std::shared_ptr<AML_SPUVAR>> &list)
+{
+    if (list.size() == 0) {
+        return nullptr;
+    }
 
     std::shared_ptr<AML_SPUVAR> spu = list.front();
 
-    // only show the last picture, not combine!
+    // Only show the last picture, not combine!
     if (!spu->isSimpleText) {
         return list.back();
     }
 
-    // multiline, need combine all the subtitles! do combine here!
+    // For multiline, combine all the subtitles.
     if (list.size() > 1) {
         int totalSize = 0;
         std::for_each(list.begin(), list.end(), [&](std::shared_ptr<AML_SPUVAR> &s) {
-            //w.dump(prefix);
             totalSize += spu->buffer_size + 1; // add initial newline.
         });
 
-        std::shared_ptr<AML_SPUVAR> newCue =  std::shared_ptr<AML_SPUVAR>(new AML_SPUVAR());
-        // shandow copy.
+        auto newCue =  std::shared_ptr<AML_SPUVAR>(new AML_SPUVAR());
+        // Shandow copy.
         memcpy(newCue.get(), list.front().get(), sizeof(AML_SPUVAR));
 
-        // combine lines
-        newCue->spu_data = new uint8_t[totalSize+1](); //additional '\0'
+        // Combine lines
+        newCue->spu_data = new uint8_t[totalSize + 1](); // additional '\0'
         std::for_each(list.begin(), list.end(), [&](std::shared_ptr<AML_SPUVAR> &s) {
             strcat((char *)newCue->spu_data, (const char *)s->spu_data);
             strcat((char *)newCue->spu_data, "\n");
@@ -131,10 +140,10 @@ static std::shared_ptr<AML_SPUVAR> getShowingSpuFromList(
     return spu;
 }
 
-/* Some cue may showing at current pts. but cue start pts may not the same
- *  we filter this, when the cue is too old, but not run out of it's life time.
- */
-void reAssembleSpuList(std::list<std::shared_ptr<AML_SPUVAR>> &list) {
+// Some cue may showing at current pts. but cue start pts may not the same
+// we filter this, when the cue is too old, but not run out of it's life time.
+void reAssembleSpuList(std::list<std::shared_ptr<AML_SPUVAR>> &list)
+{
     if (list.size() <= 1) return;
 
     std::shared_ptr<AML_SPUVAR> spu = list.back();
@@ -150,6 +159,7 @@ void reAssembleSpuList(std::list<std::shared_ptr<AML_SPUVAR>> &list) {
     }
 }
 
+}
 
 Presentation::Presentation(std::shared_ptr<Display> disp) :
     mCurrentPresentRelativeTime(0),
@@ -185,38 +195,36 @@ bool Presentation::notifyStartTimeStamp(int64_t startTime) {
     return true;
 }
 
-// amnumediaplayer may report 33bit invalid pts, we must filter this value!
-#define INVALID_PTS 0x1ffffffff
-bool Presentation::syncCurrentPresentTime(int64_t pts) {
+bool Presentation::syncCurrentPresentTime(int64_t pts)
+{
     if (mSubtitlePts32Bit) {
         pts &= TSYNC_32_BIT_PTS;
     }
 
-    //SUBTITLE_LOGI("%s %llx %lld", __func__, pts, pts);
-
+    // amnumediaplayer may report 33bit invalid pts, we must filter INVALID_PTS.
     if (INVALID_PTS == pts) {
         SUBTITLE_LOGI("Error! got invalid pts");
         mCurrentPresentRelativeTime = mStartPresentMonoTimeNs = -1;
         return false;
     }
+
     mCurrentPresentRelativeTime = convertDvbTime2Ns(pts);
     if (mParser) {
         mParser->notifyRenderTimeChanged(pts);
     }
 
-    // the time
     mStartPresentMonoTimeNs = systemTime(SYSTEM_TIME_MONOTONIC) - convertDvbTime2Ns(pts);
 
     // Log information, do not rush out too much, throttle to 1/300.
     static int i = 0;
-    if (i++%300 == 0) {
-        SUBTITLE_LOGI("pts:%" PRId64 " mCurrentPresentRelativeTime: %" PRId64
-                      "  current:%" PRId64,
+    if (i++ % 300 == 0) {
+        SUBTITLE_LOGI("pts = %" PRId64 ", mCurrentPresentRelativeTime = %" PRId64
+                      "ms,  current = %" PRId64 " ms",
                       pts, ns2ms(mCurrentPresentRelativeTime),
                       ns2ms(systemTime(SYSTEM_TIME_MONOTONIC)));
     }
 
-    // external subtitle, just polling and showing the subtitle.
+    // External subtitle, just polling and showing the subtitle.
     if (mParser != nullptr && mParser->isExternalSub()) {
         std::unique_lock<std::mutex> autolock(mMutex);
         if (mMsgProcess != nullptr) {
@@ -226,7 +234,6 @@ bool Presentation::syncCurrentPresentTime(int64_t pts) {
 
     return true;
 }
-
 
 bool Presentation::startPresent(std::shared_ptr<Parser> parser) {
     SUBTITLE_LOGI("enter %s", __func__);
@@ -246,7 +253,8 @@ bool Presentation::startPresent(std::shared_ptr<Parser> parser) {
     return true;
 }
 
-bool Presentation::stopPresent() {
+bool Presentation::stopPresent()
+{
     SUBTITLE_LOGI("enter %s", __func__);
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
@@ -259,9 +267,10 @@ bool Presentation::stopPresent() {
     return true;
 }
 
-
 //ssa text subtitle may have two continuous packet while have same pts
-bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1, std::shared_ptr<AML_SPUVAR> spu2) {
+bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1,
+                                          std::shared_ptr<AML_SPUVAR> spu2)
+{
     if (spu1 != nullptr && spu2 != nullptr) {
         if (spu1->isExtSub || spu1->isImmediatePresent || !spu1->isSimpleText) {
             return false;
@@ -303,7 +312,8 @@ bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1, std:
     return false;
 }
 
-bool static inline isMore32Bit(int64_t pts) {
+bool static inline isMore32Bit(int64_t pts)
+{
     if (((pts >> 32) & HIGH_32_BIT_PTS) > 0) {
         return true;
     }
@@ -314,7 +324,8 @@ bool static inline isMore32Bit(int64_t pts) {
 //tsync only support 32 bit pts, so if video pts from tsync
 //is more than 32 bits, subtitle pts will change to 32 bit pts.
 //mediasync support 64 bit pts which don't need change.
-bool Presentation::compareBitAndSyncPts(std::shared_ptr<AML_SPUVAR> spu, int64_t vPts) {
+bool Presentation::compareBitAndSyncPts(std::shared_ptr<AML_SPUVAR> spu, int64_t vPts)
+{
     if (spu->pts <= 0 || vPts <= 0) {
         return false;
     }
@@ -330,7 +341,8 @@ bool Presentation::compareBitAndSyncPts(std::shared_ptr<AML_SPUVAR> spu, int64_t
     return false;
 }
 
-bool Presentation::resetForSeek() {
+bool Presentation::resetForSeek()
+{
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
         mMsgProcess->notifyMessage(MessageProcess::MSG_RESET_MESSAGE_QUEUE);
@@ -338,14 +350,16 @@ bool Presentation::resetForSeek() {
     return true;
 }
 
-void Presentation::notifySubdataAdded() {
+void Presentation::notifySubdataAdded()
+{
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
         mMsgProcess->notifyMessage(MessageProcess::MSG_PTS_TIME_CHECK_SPU);
     }
 }
 
-void Presentation::dump(int fd, const char *prefix) {
+void Presentation::dump(int fd, const char *prefix)
+{
     dprintf(fd, "%s Presentation:\n", prefix);
     dprintf(fd, "%s   CurrentPresentRelativeTime[dvb time]: %" PRId64 "\n",
             prefix, convertNs2DvbTime(mCurrentPresentRelativeTime));
@@ -387,7 +401,8 @@ void Presentation::dump(int fd, const char *prefix) {
     }
 }
 
-Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSub) {
+Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSub)
+{
     mRequestThreadExit = false;
     mPresent = present;
     mIsExtSub = isExtSub;
@@ -398,12 +413,14 @@ Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSu
     mLooperThread = std::shared_ptr<std::thread>(new std::thread(&MessageProcess::looperLoop, this));
 }
 
-Presentation::MessageProcess::~MessageProcess() {
+Presentation::MessageProcess::~MessageProcess()
+{
     mLastShowingSpu = nullptr;
     mPresent = nullptr;
 }
 
-void Presentation::MessageProcess::join() {
+void Presentation::MessageProcess::join()
+{
     mRequestThreadExit = true;
     if (mLooper != nullptr) {
         mLooper->removeMessages(this, MSG_PTS_TIME_CHECK_SPU);
@@ -416,14 +433,16 @@ void Presentation::MessageProcess::join() {
     mLooper = nullptr;
 }
 
-bool Presentation::MessageProcess::notifyMessage(int what) {
+bool Presentation::MessageProcess::notifyMessage(int what)
+{
     if (mLooper != nullptr) {
         mLooper->sendMessage(this, Message(what));
     }
     return true;
 }
 
-void Presentation::MessageProcess::handleMessage(const Message& message) {
+void Presentation::MessageProcess::handleMessage(const Message& message)
+{
     // we sync from video pts. but some player not start video
     // when decoded and present subtitle. so we need wait video pts
     if (mPresent->mCurrentPresentRelativeTime < 0) {
@@ -434,64 +453,75 @@ void Presentation::MessageProcess::handleMessage(const Message& message) {
     return mIsExtSub ? handleExtSub(message) : handleStreamSub(message);
 }
 
-
 static std::list<std::shared_ptr<AML_SPUVAR>> computeShowingSpuList(
-    std::list<std::shared_ptr<AML_SPUVAR>> &list, int64_t timestamp) {
-
+    std::list<std::shared_ptr<AML_SPUVAR>> &list, int64_t timestamp)
+{
     std::list<std::shared_ptr<AML_SPUVAR>> showingList;
     std::shared_ptr<AML_SPUVAR> spuLess;
     std::shared_ptr<AML_SPUVAR> spuBig;
-    //spu list is sorted by pts
-    // TODO: quick search
-    for (auto it=list.begin(); it != list.end(); ++it) {
-        uint64_t pts = convertDvbTime2Ns((*it)->pts);
-        uint64_t ptsEnd = convertDvbTime2Ns((*it)->m_delay);
+    // spu list is sorted by pts
+    for (auto it : list) {
+        auto pts = convertDvbTime2Ns(it->pts);
+        auto ptsEnd = convertDvbTime2Ns(it->m_delay);
         if (timestamp >= pts && timestamp <= ptsEnd) {
-            showingList.push_back(*it);
+            showingList.push_back(it);
         }
 
-        if (ptsEnd > timestamp) break;
+        if (ptsEnd > timestamp) {
+            break;
+        }
     }
+
+    // nullptr means no subtitle is displayed on the screen.
     return showingList;
 }
 
-
-
-void Presentation::MessageProcess::handleExtSub(const Message& message) {
+void Presentation::MessageProcess::handleExtSub(const Message& message)
+{
     switch (message.what) {
         case MSG_PTS_TIME_CHECK_SPU: {
-            uint64_t timestamp = mPresent->mStartTimeModifier + mPresent->mCurrentPresentRelativeTime;
-
-            // external sub always decoded all the subtitle items.
+            // External subtitle parser always decode all the subtitle items,
+            // syncCurrentPresentTime triggers the display.
             mLooper->removeMessages(this, MSG_PTS_TIME_CHECK_SPU);
+
             if (mPresent->mParser == nullptr) {
                 SUBTITLE_LOGE("[%s:%d] Error! parser is nullptr", __func__, __LINE__);
                 return;
             }
 
-            //1. collect all decoded items! save in mEmittedShowingSpu!
+            // 1. Collect all decoded items, save them into in mEmittedShowingSpu.
             std::shared_ptr<AML_SPUVAR> spu;
-            std::list<std::shared_ptr<AML_SPUVAR>> &spuList = mPresent->mEmittedShowingSpu;
+            auto& spuList = mPresent->mEmittedShowingSpu;
             while ((spu = mPresent->mParser->tryConsumeDecodedItem()) != nullptr) {
                 spu->m_delay = fixSpuDelay(spu->pts, spu->m_delay); // TODO: move to spu construct.
                 spuList.push_back(spu);
                 spuList.sort(cmpSpu);
             }
 
-            // 2. find need showing SPUs by pts.
-            std::list<std::shared_ptr<AML_SPUVAR>>  showing = computeShowingSpuList(spuList, timestamp);
+            // 2. Find showing SPUs by pts, none showing spu means no subtitles
+            //    are displayed on the screen
+            // Current video playback time with in ns.
+            uint64_t timestampNs = mPresent->mStartTimeModifier + mPresent->mCurrentPresentRelativeTime;
+            auto showingSpuList = computeShowingSpuList(spuList, timestampNs);
+            if (showingSpuList.size() > 0) {
+                spu = getShowingSpuFromList(showingSpuList);
 
-
-            if (showing.size() > 0) {
-                spu = getShowingSpuFromList(showing);
-
-                // post to show.
+                // Post to show.
                 if (mLastShowingSpu != spu) {
+                    SUBTITLE_LOGI("Show SPU: TimeStamp:%" PRId64 " ms, SPU[pts:%" PRId64
+                                  " ms diff %" PRId64 " ms) data: %s (size=%d)]",
+                                  ns2ms(mPresent->mCurrentPresentRelativeTime) +
+                                  ns2ms(mPresent->mStartTimeModifier),
+                                  spu->pts/DVB_TIME_MULTI,
+                                  spu->pts/DVB_TIME_MULTI - ns2ms(mPresent->mCurrentPresentRelativeTime)
+                                  - ns2ms(mPresent->mStartTimeModifier),
+                                  spu->spu_data, spu->buffer_size);
                     mPresent->mEmittedFaddingSpu.clear();
                     mPresent->mRender->showSubtitleItem(spu, mPresent->mParser->getParseType());
                 }
                 mLastShowingSpu = spu;
-            } else {
+            }
+            else {
                 if (mLastShowingSpu != nullptr) {
                     mPresent->mRender->resetSubtitleItem();
                 }
@@ -499,20 +529,17 @@ void Presentation::MessageProcess::handleExtSub(const Message& message) {
             }
         }
         break;
-
         case MSG_RESET_MESSAGE_QUEUE:
             mPresent->mEmittedFaddingSpu.clear();
             mPresent->mRender->resetSubtitleItem();
             break;
-
-        default:
-        break;
+        default: break;
     }
 }
 
-
 // Stream sub decode and show the subtitle when received data .
-void Presentation::MessageProcess::handleStreamSub(const Message& message) {
+void Presentation::MessageProcess::handleStreamSub(const Message& message)
+{
     switch (message.what) {
         case MSG_PTS_TIME_CHECK_SPU: {
             mLooper->removeMessages(this, MSG_PTS_TIME_CHECK_SPU);
@@ -838,7 +865,8 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message) {
     }
 }
 
-void Presentation::MessageProcess::looperLoop() {
+void Presentation::MessageProcess::looperLoop()
+{
     mLooper = new Looper(false);
     if (mPresent->mCurrentPresentRelativeTime <= 0) {
         mLooper->sendMessageDelayed(ms2ns(100), this, Message(MSG_PTS_TIME_CHECK_SPU));
@@ -850,12 +878,11 @@ void Presentation::MessageProcess::looperLoop() {
     mPresent->mEmittedShowingSpu.clear();
     mPresent->mEmittedFaddingSpu.clear();
 
-
     while (!mRequestThreadExit) {
         int32_t ret = mLooper->pollAll(2000);
         switch (ret) {
             case -1:
-                SUBTITLE_LOGI("A_LOOPER_POLL_WAKE\n");
+                SUBTITLE_LOGI("A_LOOPER_POLL_WAKE");
                 mSubtitlePts32Bit = false;
                 break;
             case -3: // timeout

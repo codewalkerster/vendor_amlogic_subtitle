@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -24,60 +24,58 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define LOG_TAG "Mircodvd"
+#define LOG_TAG "Extsubtitle_Mircodvd"
 
 #include "Mircodvd.h"
 #include "SubtitleLog.h"
 
-
-Mircodvd::Mircodvd(std::shared_ptr<DataSource> source): TextSubtitle(source) {
-    // default rate
-    mPtsRate = 15;
+Mircodvd::Mircodvd(std::shared_ptr<DataSource> source): TextSubtitle(source)
+{
+    mPtsRate = 24; // fps
 }
 
-Mircodvd::~Mircodvd() {
-}
-
-std::shared_ptr<ExtSubItem> Mircodvd::decodedItem() {
-    char *line = (char *)MALLOC(LINE_LEN+1);
+std::shared_ptr<ExtSubItem> Mircodvd::decodedItem()
+{
+    char* line = (char *)MALLOC(LINE_LEN);
     if (!line) {
-        SUBTITLE_LOGE("[%s::%d] line malloc error!\n", __FUNCTION__, __LINE__);
+        SUBTITLE_LOGE("[%s::%d] line malloc error %m", __FUNCTION__, __LINE__);
         return nullptr;
     }
-    char *line2 = (char *)MALLOC(LINE_LEN);
-    if (!line2) {
-        SUBTITLE_LOGE("[%s::%d] line2 malloc error!\n", __FUNCTION__, __LINE__);
+    char* subtitleText = (char *)MALLOC(LINE_LEN);
+    if (!subtitleText) {
+        SUBTITLE_LOGE("[%s::%d] line2 malloc error %m", __FUNCTION__, __LINE__);
         free(line);
         return nullptr;
     }
-    memset(line, 0, LINE_LEN+1);
-    memset(line2, 0, LINE_LEN);
+
+    memset(line, 0, LINE_LEN);
+    memset(subtitleText, 0, LINE_LEN);
     while (mReader->getLine(line)) {
         int start =0, end = 0;
-        if (sscanf (line, "{%d}{%d}%[^\r\n]", &start, &end, line2) < 3) {
-            if (sscanf(line, "{%d}{}%[^\r\n]", &start, line2) < 2) {
+        if (sscanf(line, "{%d}{%d}%[^\r\n]", &start, &end, subtitleText) < 3) {
+            if (sscanf(line, "{%d}{}%[^\r\n]", &start, subtitleText) < 2) {
                 continue;
             }
         }
 
         if (start == 1) {
-            if (atoi(line2) > 0) {
-                mPtsRate = atoi(line2);
+            if (atoi(subtitleText) > 0) {
+                mPtsRate = atoi(subtitleText);
             }
             continue;
         }
 
-        std::shared_ptr<ExtSubItem> item = std::shared_ptr<ExtSubItem>(new ExtSubItem());
+        auto item = std::shared_ptr<ExtSubItem>(new ExtSubItem());
         item->start = start*100/mPtsRate;
         item->end = end*100/mPtsRate;
-        std::string s(line2);
+        std::string s(subtitleText);
         item->lines.push_back(s);
         free(line);
-        free(line2);
-        return item;
+        free(subtitleText);
+        return std::move(item);
     }
+
     free(line);
-    free(line2);
+    free(subtitleText);
     return nullptr;
 }
-

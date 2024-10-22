@@ -24,36 +24,42 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define LOG_TAG "TextSubtitle"
+#define LOG_TAG "Extsubtitle_TextSubtitle"
 
 #include "TextSubtitle.h"
 #include "ExtSubStreamReader.h"
-
 #include "SubtitleLog.h"
 
-TextSubtitle::TextSubtitle(std::shared_ptr<DataSource> source) {
-    mSource = source;
-    mReader = std::shared_ptr<ExtSubStreamReader>(new ExtSubStreamReader(AML_ENCODING_NONE, source));
-
+TextSubtitle::TextSubtitle(std::shared_ptr<DataSource> source)
+{
+    mSource = std::move(source);
+    mReader = std::make_shared<ExtSubStreamReader>(AML_ENCODING_NONE, mSource);
 }
 
-bool TextSubtitle::decodeSubtitles(int idxSubTrackId) {
+bool TextSubtitle::decodeSubtitles(int idxSubTrackId)
+{
     mSource->lseek(0, SEEK_SET);
-    //mPtsRate = 15;       //24;//default value
-
     mIdxSubTrackId = idxSubTrackId;
 
-    SUBTITLE_LOGI("decodeSubtitles....");
+    SUBTITLE_LOGI("%s ....", __func__);
     while (true) {
-        std::shared_ptr<ExtSubItem> item = this->decodedItem();
+        auto item = this->decodedItem();
         if (item == nullptr) {
             break; // No more data, EOF found.
         }
 
-        // TODO: how to handle error states.
+        for (auto& it : item->lines) {
+            std::regex brTag("<br[ ]*/>");
+            it = std::regex_replace(it, brTag, "\n");
+            std::replace(it.begin(), it.end(), '|', '\n');
+
+            SUBTITLE_LOGI("%s: decoded_item: start=%" PRId64
+                          " ms, end=%" PRId64 " ms, text = %s",
+                          __func__, item->start, item->end, it.c_str());
+        }
+
         item->start = sub_ms2pts(item->start);
         item->end = sub_ms2pts(item->end);
-
         mSubData.subtitles.push_back(item);
     }
 
@@ -61,8 +67,9 @@ bool TextSubtitle::decodeSubtitles(int idxSubTrackId) {
     return true;
 }
 
-/* consume subtitle */
-std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem() {
+// consume subtitle
+std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem()
+{
     if (totalItems() <= 0) {
         return nullptr;
     }
@@ -90,24 +97,28 @@ std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem() {
 }
 
 // return total decoded, not consumed subtitles
-int TextSubtitle::totalItems() {
+int TextSubtitle::totalItems()
+{
     return mSubData.subtitles.size();
 }
 
-
-void TextSubtitle::dump(int fd, const char *prefix) {
+void TextSubtitle::dump(int fd, const char *prefix)
+{
     if (fd <= 0) {
-        SUBTITLE_LOGI("Total: %d", mSubData.subtitles.size());
+        SUBTITLE_LOGI("Total: %zu", mSubData.subtitles.size());
         for (auto i : mSubData.subtitles) {
-            SUBTITLE_LOGI("[%08lld:%08lld]", sub_pts2ms(i->start), sub_pts2ms(i->end));
+            SUBTITLE_LOGI("[%" PRId64 ":%" PRId64 "]",
+                          sub_pts2ms(i->start), sub_pts2ms(i->end));
             for (auto s :i->lines) {
                 SUBTITLE_LOGI("    %s", s.c_str());
             }
         }
-    } else {
-        dprintf(fd, "%s Total: %d\n", prefix, mSubData.subtitles.size());
+    }
+    else {
+        dprintf(fd, "%s Total: %zu\n", prefix, mSubData.subtitles.size());
         for (auto i : mSubData.subtitles) {
-            dprintf(fd, "%s [%08lld:%08lld]\n", prefix, sub_pts2ms(i->start), sub_pts2ms(i->end));
+            dprintf(fd, "%s [%" PRId64 ":%" PRId64 "]\n", prefix,
+                    sub_pts2ms(i->start), sub_pts2ms(i->end));
             for (auto s :i->lines) {
                 dprintf(fd, "%s    %s\n", prefix, s.c_str());
             }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -42,8 +42,8 @@
 #define  UTF8           unsigned char
 #define  UTF16          unsigned short
 #define  UTF32          unsigned int
-#define ERR ((void *) -1)
-#define LINE_LEN                    1024*512
+#define ERR             ((void *) -1)
+#define LINE_LEN        (1024 * 2)
 
 enum {
     AML_ENCODING_NONE = 0,

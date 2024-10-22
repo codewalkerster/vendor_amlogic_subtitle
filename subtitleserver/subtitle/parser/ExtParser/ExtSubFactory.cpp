@@ -62,7 +62,7 @@ int ExtSubFactory::detect(std::shared_ptr<DataSource> source)
 
     int maxLineDetect = 0;
     while (maxLineDetect < 100) {
-        char line[LINE_LEN + 1] = {0};
+        char line[LINE_LEN] = {0};
         if (!reader->getLine(line)) {
             return SUB_INVALID;
         }
