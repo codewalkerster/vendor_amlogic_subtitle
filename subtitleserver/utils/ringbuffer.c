@@ -248,7 +248,7 @@ rbuf_handle_t ringbuffer_create(int size, const char*name)
     rbuf->write_pos = 0;
     rbuf->read_avail    = 0;
     rbuf->write_avail   = size;
-    rbuf->name = strdup(name);
+    rbuf->name = strdup(name);  //strdup malloc inside
 
 
 #ifdef  DUMP_FILE
@@ -269,6 +269,10 @@ rbuf_handle_t ringbuffer_create(int size, const char*name)
 
 error:
     if (rbuf) {
+        if (rbuf->name) {
+            free(rbuf->name);
+            rbuf->name = NULL;
+        }
         if (rbuf->buffer) {
             free(rbuf->buffer);
             rbuf->buffer = NULL;
