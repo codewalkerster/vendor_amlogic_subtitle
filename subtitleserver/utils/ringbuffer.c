@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -35,7 +35,6 @@
 #include "SubtitleLog.h"
 
 #include "ringbuffer.h"
-
 
 // Handle to a buffer structure
 // Create with buffer_create(), destroy with buffer_free()
@@ -117,10 +116,6 @@ int ringbuffer_read(rbuf_handle_t handle, char *dst, int count, rbuf_mode_t mode
 
     rbuf->write_avail += count;
     rbuf->read_avail -= count;
-    SUBTITLE_LOGI("after read[%s]: readavail:%d write_avail:%d size:%d r_pos:%d w_pos:%d\n", rbuf->name,
-        rbuf->read_avail,rbuf->write_avail, rbuf->buffer_size, rbuf->read_pos, rbuf->write_pos);
-
-
     return count;
 }
 
@@ -151,10 +146,6 @@ int ringbuffer_peek(rbuf_handle_t handle, char *dst, int count, rbuf_mode_t mode
 #ifdef  DUMP_FILE
     dumpbuffer(rbuf->r_fp, dst, count);
 #endif
-
-    SUBTITLE_LOGI("after read[%s]: readavail:%d write_avail:%d size:%d r_pos:%d w_pos:%d\n", rbuf->name,
-        rbuf->read_avail,rbuf->write_avail, rbuf->buffer_size, rbuf->read_pos, rbuf->write_pos);
-
     return count;
 }
 
@@ -189,9 +180,6 @@ int ringbuffer_write(rbuf_handle_t handle, const char *src, int count, rbuf_mode
 
     rbuf->write_avail -= count;
     rbuf->read_avail += count;
-    SUBTITLE_LOGI("after write[%s]: readavail:%d write_avail:%d size:%d r_pos:%d w_pos:%d\n", rbuf->name,
-        rbuf->read_avail,rbuf->write_avail, rbuf->buffer_size, rbuf->read_pos, rbuf->write_pos);
-
     return count;
 }
 
@@ -237,7 +225,7 @@ rbuf_handle_t ringbuffer_create(int size, const char*name)
     // Allocate handle
     ringbuffer_t *rbuf = (ringbuffer_t *)malloc(sizeof(ringbuffer_t));
     if (!rbuf) {
-        SUBTITLE_LOGI("ERROR: failed to allocate handle\n");
+        SUBTITLE_LOGE("ERROR: failed to allocate handle: %m");
         goto error;
     }
 

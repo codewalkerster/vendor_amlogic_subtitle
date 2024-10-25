@@ -29,23 +29,23 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string>
-#include "SubtitleLog.h"
 
+#include "SubtitleLog.h"
 #include "AndroidHidlRemoteRender.h"
 #include "AndroidCallbackMessageQueue.h"
 #include "ParserFactory.h"
 
-//using ::vendor::amlogic::hardware::subtitleserver::V1_0::implementation::SubtitleServerHal;
 using amlogic::AndroidCallbackMessageQueue;
 
-static const int FADING_SUB = 0;
+static const int FADING_SUB  = 0;
 static const int SHOWING_SUB = 1;
 
-
-bool AndroidHidlRemoteRender::postObjectIdSubtitleData(int objectId) {
-    sp<AndroidCallbackMessageQueue> queue = AndroidCallbackMessageQueue::Instance();
+bool AndroidHidlRemoteRender::postObjectIdSubtitleData(int objectId)
+{
     SUBTITLE_LOGI("%s_clear_display: objectId=%d mShowingSubs=%zu\n",
                   __func__, objectId, mShowingSubs.size());
+
+    sp<AndroidCallbackMessageQueue> queue = AndroidCallbackMessageQueue::Instance();
     if (queue != nullptr) {
         queue->postDisplayData(nullptr, mParseType, 0, 0, 0, 0, 0, 0, 0, FADING_SUB, objectId);
         return true;
@@ -55,7 +55,8 @@ bool AndroidHidlRemoteRender::postObjectIdSubtitleData(int objectId) {
     }
 }
 
-bool AndroidHidlRemoteRender::postSubtitleData() {
+bool AndroidHidlRemoteRender::postSubtitleData()
+{
     // TODO: share buffers. if need performance
     //std:: string out;
     int width=0, height=0, size=0,x =0, y=0, videoWidth = 0, videoHeight = 0, objectSegmentId = 0;
@@ -64,7 +65,7 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
 
     if (mShowingSubs.size() <= 0) {
         if (queue != nullptr) {
-            for (int i=0; i<=mCurrentMaxObjectId; i++) {
+            for (int i=0; i<=mCurrentMaxObjectId; ++i) {
                 SUBTITLE_LOGI("%s_clear_display: objectId=%d mCurrentMaxObjectId:%d",
                               __func__, i, mCurrentMaxObjectId);
                 queue->postDisplayData(nullptr, mParseType, 0, 0, 0, 0, 0, 0, 0, FADING_SUB, i);
@@ -78,7 +79,7 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
     }
 
     // only show the newest, since only 1 line for subtitle.
-    for (auto it = mShowingSubs.rbegin(); it != mShowingSubs.rend(); it++) {
+    for (auto it = mShowingSubs.rbegin(); it != mShowingSubs.rend(); ++it) {
 
         if (((*it)->spu_data) == nullptr) {
             if ((*it)->dynGen) {
@@ -146,21 +147,24 @@ bool AndroidHidlRemoteRender::postSubtitleData() {
 
 // TODO: the subtitle may has some params, config how to render
 //       Need impl later.
-bool AndroidHidlRemoteRender::showSubtitleItem(std::shared_ptr<AML_SPUVAR> spu, int type) {
+bool AndroidHidlRemoteRender::showSubtitleItem(std::shared_ptr<AML_SPUVAR> spu, int type)
+{
     SUBTITLE_LOGI("%s", __func__);
     mShowingSubs.push_back(spu);
     mParseType = type;
     return postSubtitleData();
 }
 
-void AndroidHidlRemoteRender::resetSubtitleItem() {
+void AndroidHidlRemoteRender::resetSubtitleItem()
+{
     SUBTITLE_LOGI("%s", __func__);
     mShowingSubs.clear();
     // flush showing
     postSubtitleData();
 }
 
-bool AndroidHidlRemoteRender::hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu) {
+bool AndroidHidlRemoteRender::hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu)
+{
     SUBTITLE_LOGI("%s", __func__);
     //some stream is special.some subtitles have pts, but some subtitles don't have pts.
     //In this situation if use the remove() function,it may cause the subtitle contains
@@ -170,15 +174,15 @@ bool AndroidHidlRemoteRender::hideSubtitleItem(std::shared_ptr<AML_SPUVAR> spu) 
     return postSubtitleData();
 }
 
-bool AndroidHidlRemoteRender::hideObjectIdSubtitleItem(int type, int objectId) {
+bool AndroidHidlRemoteRender::hideObjectIdSubtitleItem(int type, int objectId)
+{
     SUBTITLE_LOGI("%s: objectId=%d type=%d ", __func__, objectId, type);
     mParseType = type;
-
     return postObjectIdSubtitleData(objectId);
 }
 
-void AndroidHidlRemoteRender::removeSubtitleItem(std::shared_ptr<AML_SPUVAR> spu)  {
+void AndroidHidlRemoteRender::removeSubtitleItem(std::shared_ptr<AML_SPUVAR> spu)
+{
     SUBTITLE_LOGI("%s: objectId=%d", __func__, spu->objectSegmentId);
     mShowingSubs.remove(spu);
 }
-

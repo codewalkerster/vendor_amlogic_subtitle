@@ -322,7 +322,7 @@ void PgsParser::softDemuxParser()
     // The unit of duration is: duration = ms*90
     auto duration = subPeekAsUint32(header + 15);
 
-    SUBTITLE_LOGI("%s: dataLen=%d, pts=%" PRId64 ", duration=%d",
+    SUBTITLE_LOGI("%s: dataLen=%-6d, pts=%" PRId64 ", duration=%d",
                   __func__, dataLen, pts, duration);
 
     // 2. Read the packet data
@@ -343,7 +343,8 @@ void PgsParser::softDemuxParser()
         auto packetType = bytestream_get_byte(&buff);
         auto packetLen  = bytestream_get_be16(&buff);
         if (packetLen == 0 && packetType != 0x80) {
-            SUBTITLE_LOGE("%s: get zero packetLen", __func__);
+            SUBTITLE_LOGI("%s: get zero packetLen, packetType=0x%02x",
+                          __func__, packetType);
             return;
         }
         if (buff + packetLen > buff_end) {
@@ -820,10 +821,9 @@ int PgsParser::parseObjectSegment(const uint8_t* buf, int buf_size)
 // 5 END
 void PgsParser::handleDisplayEndSegment()
 {
-    auto presentationPtsMs = mPresentationTime/DEFAULT_DVB_TIME_MULTI + DECODE_PRE_TIME_MS;
-
     // 1. Drop the PGS contexts suppose which are received during seek
-    mPgsContextList.erase(std::remove_if(mPgsContextList.begin(),  mPgsContextList.end(),
+    auto presentationPtsMs = mPresentationTime/DEFAULT_DVB_TIME_MULTI + DECODE_PRE_TIME_MS;
+    mPgsContextList.erase(std::remove_if(mPgsContextList.begin(), mPgsContextList.end(),
             [=] (const std::shared_ptr<PGSSubContext>& it) {
                 int ptsMs = it->presentation.pts / DEFAULT_DVB_TIME_MULTI;
                 int diffTimeMs = ptsMs - presentationPtsMs;
@@ -1080,6 +1080,11 @@ void PgsParser::postDecodedItem(PGSSubContext& subContext, bool isImmediatePrese
             spu->objectSegmentId = i;
             spu->buffer_size = 0;
 
+            if (mDumpSub) {
+                // Dump a nullptr flag
+                save2BitmapFile(nullptr, 0, 0, 0, spu->pts, spu->objectSegmentId, 0);
+            }
+
             // 2. Post spu
             Parser::addDecodedItem(std::move(spu));
         }
@@ -1181,17 +1186,20 @@ PgsParser::PGSSubPalette* PgsParser::findPalette(int id, PGSSubPalettes* palette
 }
 
 void PgsParser::save2BitmapFile(uint8_t* bitmap, int size, int w, int h,
-                                       int64_t pts, int objectSegmentId, int objectId)
+                                int64_t pts, int objectSegmentId, int objectId)
 {
-    if (!bitmap) {
-        SUBTITLE_LOGE("%s: null bitmap", __func__);
-        return;
-    }
-
     char filename[128];
-    snprintf(filename, sizeof(filename),
-             "./data/subtitleDump/pgs_%" PRId64 "_%d_%d.ppm",
-             pts, objectSegmentId, objectId);
+    if (bitmap) {
+        snprintf(filename, sizeof(filename),
+                 "./data/subtitleDump/pgs_%" PRId64 "_%d_%d.ppm",
+                 pts, objectSegmentId, objectId);
+    }
+    else {
+        assert(size == 0);
+        snprintf(filename, sizeof(filename),
+                 "./data/subtitleDump/pgs_%" PRId64 "_%d_nullptr.ppm",
+                 pts, objectSegmentId);
+    }
 
     FILE* f = fopen(filename, "w");
     if (!f) {

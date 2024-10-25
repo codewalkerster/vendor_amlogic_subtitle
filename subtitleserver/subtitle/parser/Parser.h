@@ -67,7 +67,7 @@ enum SubtitleType {
 #define SUB_PLAYING     1
 #define SUB_STOP        2
 #define SUB_EXIT        3
-#define HEADER_SIZE 20
+#define HEADER_SIZE     20
 
 #define VOB_SUB_WIDTH 1920
 #define VOB_SUB_HEIGHT 1280
@@ -157,11 +157,10 @@ public:
         return item;
     }
 
-   virtual std::shared_ptr<AML_SPUVAR> tryConsumeDecodedItem() {
+    virtual std::shared_ptr<AML_SPUVAR> tryConsumeDecodedItem() {
         std::shared_ptr<AML_SPUVAR> item;
         std::unique_lock<std::mutex> autolock(mMutex);
         if (mDecodedSpu.size() == 0) {
-            // SUBTITLE_LOGE("tryConsumeDecodedItem in parser item->spu_data null!");
             return nullptr;
         }
         item = mDecodedSpu.front();
@@ -170,36 +169,32 @@ public:
     }
 
     virtual void addDecodedItem(std::shared_ptr<AML_SPUVAR> item) {
+        if (item == nullptr) {
+            SUBTITLE_LOGE("%s: null spu", __func__);
+            return;
+        }
+
         std::unique_lock<std::mutex> autolock(mMutex);
 
-        // Do not add when exited, it's useless.
         if (mState == SUB_STOP || mState == SUB_EXIT) {
             return;
         }
+
         while (mDecodedSpu.size() >= mMaxSpuItems) {
-            auto item = mDecodedSpu.front();
-            if (item->spu_data == nullptr
-                && item->subtitle_type == TYPE_SUBTITLE_PGS) {
-                SUBTITLE_LOGE("%s: PGS end segment is deleted on spu with pts(%" PRId64
-                              ")\n", __func__, item->pts);
-            }
             mDecodedSpu.pop_front();
         }
 
-        // validate the item: do not sent empty items due to parser error.
-        if (item == nullptr) {
-            SUBTITLE_LOGE("%s: add invalid empty spu!", __func__);
-            return;
-        }
-
         mDecodedSpu.push_back(item);
-        if (mDataNotifier != nullptr) mDataNotifier->notifySubdataAdded();
+        if (mDataNotifier) {
+            mDataNotifier->notifySubdataAdded();
+        }
         mCv.notify_all();
     }
 
     bool isExternalSub() {
         return mParseType == TYPE_SUBTITLE_EXTERNAL;
     }
+
     virtual void dump(int fd, const char *prefix) = 0;
     virtual void notifyRenderStartTimestamp(int64_t startTime)
     {

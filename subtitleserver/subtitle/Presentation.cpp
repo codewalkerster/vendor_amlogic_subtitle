@@ -174,7 +174,8 @@ Presentation::Presentation(std::shared_ptr<Display> disp) :
     mMsgProcess = nullptr; // only access in threadloop.
 }
 
-Presentation::~Presentation() {
+Presentation::~Presentation()
+{
     SUBTITLE_LOGI("enter %s", __func__);
 
     //TODO: do we need poke thread exit immediately? by post a message?
@@ -188,10 +189,13 @@ Presentation::~Presentation() {
     }
 }
 
-bool Presentation::notifyStartTimeStamp(int64_t startTime) {
+bool Presentation::notifyStartTimeStamp(int64_t startTime)
+{
     mStartTimeModifier = convertDvbTime2Ns(startTime);
-
     SUBTITLE_LOGI("notifyStartTimeStamp: %" PRId64, startTime);
+    if (mParser) {
+        mParser->notifyRenderStartTimestamp(startTime);
+    }
     return true;
 }
 
@@ -218,8 +222,8 @@ bool Presentation::syncCurrentPresentTime(int64_t pts)
     // Log information, do not rush out too much, throttle to 1/300.
     static int i = 0;
     if (i++ % 300 == 0) {
-        SUBTITLE_LOGI("pts = %" PRId64 ", mCurrentPresentRelativeTime = %" PRId64
-                      "ms,  current = %" PRId64 " ms",
+        SUBTITLE_LOGI("%s: pts = %" PRId64 ", mCurrentPresentRelativeTime = %" PRId64
+                      "ms,  current = %" PRId64 " ms", __func__,
                       pts, ns2ms(mCurrentPresentRelativeTime),
                       ns2ms(systemTime(SYSTEM_TIME_MONOTONIC)));
     }
