@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -60,8 +60,7 @@ enum ExtSubtitleType {
 };
 
 
-
-//from ffmpeg avcodec.h
+// Note: Don't change it as this enumation is aligned with amnuplayer.
 enum SubtitleCodecID {
     /* subtitle codecs */
     AV_CODEC_ID_DVD_SUBTITLE = 0x17000,

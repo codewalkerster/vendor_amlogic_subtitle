@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -26,29 +26,26 @@
 
 #ifndef __SUBTITLE_ASS_PARSER_H__
 #define __SUBTITLE_ASS_PARSER_H__
+
 #include "Parser.h"
 #include "DataSource.h"
 #include "SubtitleTypes.h"
 
 class AssParser: public Parser {
 public:
-    AssParser(std::shared_ptr<DataSource> source);
-    virtual ~AssParser() {
-        stopParser();
-    }
-    virtual int parse();
-    virtual void dump(int fd, const char *prefix);
+    explicit AssParser(std::shared_ptr<DataSource> source);
+    virtual ~AssParser();
+
+    int parse() override;
+    void dump(int fd, const char *prefix) override;
 
 private:
-
     int getSpu(std::shared_ptr<AML_SPUVAR> spu);
     int getInterSpu();
 
-    // for parser left chars
-    int mRestLen;
-    char *mRestbuf;
+    // For parser left chars
+    int mRestLen = 0;
+    char* mRestbuf = nullptr;
 };
 
-
-#endif
-
+#endif // __SUBTITLE_ASS_PARSER_H__

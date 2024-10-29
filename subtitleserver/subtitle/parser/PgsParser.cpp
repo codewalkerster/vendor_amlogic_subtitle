@@ -278,8 +278,8 @@ int PgsParser::readDataSource()
 
         // From amnuplayer
         // Please read AmSubtitle::sendToSubtitleService() in amnuplayer for details:
-        //     - The total size is 20, read 5 bytes here
-        //     - SoftDemuxParse should read only 20-5 bytes for the header
+        //     - The total header size is 24, the first 5 bytes is sync words;
+        //     - SoftDemuxParse reads and parses the remain 24-5 bytes
         int syncWord = (packetHeader & 0xffffffffff) >> 8;
         uint8_t syncType = packetHeader & 0xff;
         if (syncWord == AML_PARSER_SYNC_WORD
@@ -312,6 +312,7 @@ void PgsParser::softDemuxParser()
     }
     */
 
+    // Skip 3 bytes type
     auto dataLen = subPeekAsUint32(header + 3);
     auto pts = subPeekAsUint64(header + 7);
     if (pts == 0) {

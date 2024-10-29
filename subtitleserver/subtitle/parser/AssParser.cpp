@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -35,15 +35,15 @@
 #include <thread>
 #include <algorithm>
 #include <functional>
-
 #include "SubtitleLog.h"
-
 #include "SubtitleTypes.h"
 #include "AssParser.h"
 #include "ParserFactory.h"
-
 #include "StreamUtils.h"
+
 #define MIN_HEADER_DATA_SIZE 24
+
+namespace {
 
 static inline std::string stringConvert2Stream(std::string s1, std::string s2) {
     std::stringstream stream;
@@ -61,14 +61,13 @@ static inline std::string stringConvert2Stream(std::string s1, std::string s2) {
  *     Dialogue: ,0:01:25.16,0:01:26.72,*456,1,0000,0000,0000,,Hey! Come here!
  *     Dialogue: ,0:01:25.16,0:01:26.72,*123,1,0000,0000,0000.
  * return string for second line language text
- *
 */
 static inline std::string getSecondTextForDoubleLanguage(std::string source) {
     std::size_t indexOfLineBreak;
     std::stringstream secondStream;
     indexOfLineBreak = source.find("\n");
     if (indexOfLineBreak == std::string::npos) {
-        SUBTITLE_LOGE("NO double language, return");
+        SUBTITLE_LOGE("%s: NO double language, return", __func__);
         return "";
     }
     std::string secondStr;
@@ -102,11 +101,7 @@ static inline std::string getSecondTextForDoubleLanguage(std::string source) {
           str = tempStr.substr(nPos, tempStr.length());
       }
       return str;
-
 }
-
-
-//TODO: move to utils directory
 
 /**
  *  return ascii printed literal value
@@ -127,9 +122,7 @@ static inline std::string getSecondTextForDoubleLanguage(std::string source) {
     not normal, typically, built in:
     36,0,Default,,0000,0000,0000,,They'll be back from Johns Hopkins...
 
-
    here, we only care about the last subtitle content. other feature, like effect and margin, not support
-
 */
 static inline int __getAssSpu(uint8_t*spuBuf, uint32_t length, std::shared_ptr<AML_SPUVAR> spu) {
     const int ASS_EVENT_SECTIONS = 9;
@@ -181,6 +174,12 @@ static inline int __getAssSpu(uint8_t*spuBuf, uint32_t length, std::shared_ptr<A
 
     // get the subtitle content. here we do not need other effect and margin data.
     std::string tempStr = ss.str();
+
+    // Skip Drawing commands
+    if (tempStr.find("{\\p0}") != std::string::npos) {
+        return -1;
+    }
+
     //fist check the "{\" in the content. If don't find ,just use getline to get the content.
     int nPos = tempStr.find("{\\");
     if (-1 == nPos) {
@@ -202,10 +201,10 @@ static inline int __getAssSpu(uint8_t*spuBuf, uint32_t length, std::shared_ptr<A
         if (tokens.size() >= 9) {
             str = tokens[8];
         } else {
-            SUBTITLE_LOGE("[%s] The string does not contain enough fields.", __FUNCTION__);
+            SUBTITLE_LOGE("%s: The string does not contain enough fields", __func__);
         }
     }
-    SUBTITLE_LOGI("[%s]-subtitle=%s", ss.str().c_str(), str.c_str());
+    SUBTITLE_LOGI("%s:[%s]\n--->subtitle=%s", __func__, ss.str().c_str(), str.c_str());
     // currently not support style control code rendering
     // discard the unsupported {} Style Override control codes
     std::size_t start, end;
@@ -231,11 +230,15 @@ static inline int __getAssSpu(uint8_t*spuBuf, uint32_t length, std::shared_ptr<A
     return 0;
 }
 
+} // namespace
+
 AssParser::AssParser(std::shared_ptr<DataSource> source) {
     mDataSource = source;
     mParseType = TYPE_SUBTITLE_SSA;
-    mRestLen = 0;
-    mRestbuf = nullptr;
+}
+
+AssParser::~AssParser() {
+    stopParser();
 }
 
 int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
@@ -247,7 +250,6 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
     if (mState == SUB_INIT) {
         mState = SUB_PLAYING;
     } else if (mState == SUB_STOP) {
-        SUBTITLE_LOGI(" subtitle_status == SUB_STOP \n\n");
         return 0;
     }
 
@@ -260,10 +262,9 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
         spuBuf = new char[dataSize]();
     }
 
-
     // Got enough data (MIN_HEADER_DATA_SIZE bytes), then start parse
     while (dataSize >= MIN_HEADER_DATA_SIZE) {
-        SUBTITLE_LOGI("dataSize =%u  mRestLen=%d,", dataSize, mRestLen);
+        SUBTITLE_LOGI("%s: dataSize=%u mRestLen=%d", __func__, dataSize, mRestLen);
 
         char *tmpSpuBuffer = spuBuf;
         char *spuBufPiece = tmpSpuBuffer;
@@ -271,7 +272,7 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
             memcpy(spuBufPiece, mRestbuf, mRestLen);
         }
 
-        //for coverity dead error condition
+        // For coverity dead error condition
         mDataSource->read(spuBufPiece + mRestLen, 20);
         dataSize -= 20;
         tmpSpuBuffer += 20;
@@ -286,26 +287,24 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
                     spuBufPiece[8], spuBufPiece[9], spuBufPiece[10], spuBufPiece[11]);
             mDataSource->read(spuBufPiece, dataSize);
             //dataSize = 0;
-            SUBTITLE_LOGE("\n\n ******* find wrong subtitle header!! ******\n\n");
+            SUBTITLE_LOGE("%s: found wrong subtitle header", __func__);
             delete[] spuBuf;
             return -1;
-
         }
 
-        SUBTITLE_LOGI("\n\n ******* find correct subtitle header ******\n\n");
-        // ignore first sync byte: 0xAA/0x77
+        SUBTITLE_LOGI("%s: found correct subtitle header", __func__);
+        // Skip the first sync byte: 0xAA/0x77
         currentType = subPeekAsInt32(spuBufPiece + rdOffset) & 0x00FFFFFF;
         rdOffset += 4;
         currentLen = subPeekAsInt32(spuBufPiece + rdOffset);
         rdOffset += 4;
         currentPts = subPeekAsInt64(spuBufPiece + rdOffset);
         rdOffset += 8;
-        SUBTITLE_LOGI("dataSize=%u, currentType:%x, currentPts is %llx, currentLen is %d, \n",
-                dataSize, currentType, currentPts, currentLen);
+        SUBTITLE_LOGI("%s: dataSize=%u, currentType=%x, currentPts=%" PRId64 ", currentLen=%d",
+                      __func__, dataSize, currentType, currentPts, currentLen);
         if (currentLen > dataSize) {
-            SUBTITLE_LOGI("currentLen > size");
+            SUBTITLE_LOGE("%s: currentLen > size", __func__);
             mDataSource->read(spuBufPiece, dataSize);
-            //dataSize = 0;
             delete[] spuBuf;
             return -1;
         }
@@ -316,7 +315,8 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
             mRestLen = dataSize;
             dataSize = 0;
             tmpSpuBuffer += currentLen;
-            SUBTITLE_LOGI("currentType=0x17000 or 0x1700a! mRestLen=%d, dataSize=%d,\n", mRestLen, dataSize);
+            SUBTITLE_LOGE("%s: currentType=0x17000 or 0x1700a! mRestLen=%d, dataSize=%d",
+                          __func__, mRestLen, dataSize);
         } else {
             mDataSource->read(spuBufPiece + 20, currentLen + 4);
             dataSize -= (currentLen + 4);
@@ -324,41 +324,43 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
             mRestLen = 0;
         }
 
-
         switch (currentType) {
-            case AV_CODEC_ID_VOB_SUBTITLE:   //mkv internal image
+            case AV_CODEC_ID_VOB_SUBTITLE:   // mkv internal image
                 durationPts = subPeekAsInt32(spuBufPiece + rdOffset);
                 rdOffset += 4;
                 mRestLen -= 4;
-                SUBTITLE_LOGI("durationPts is %d\n", durationPts);
+                SUBTITLE_LOGI("%s: durationPts is %d", __func__, durationPts);
                 break;
 
-            case AV_CODEC_ID_TEXT:   //mkv internal utf-8
-            case AV_CODEC_ID_SSA:   //mkv internal ssa
-            case AV_CODEC_ID_SUBRIP:   //mkv internal SUBRIP
-            case AV_CODEC_ID_ASS:   //mkv internal ass
+            case AV_CODEC_ID_TEXT:     // mkv internal utf-8
+            case AV_CODEC_ID_SSA:      // mkv internal ssa
+            case AV_CODEC_ID_SUBRIP:   // mkv internal SUBRIP
+            case AV_CODEC_ID_ASS:      // mkv internal ass
             case AV_CODEC_ID_WEBVTT:
                 durationPts = subPeekAsInt32(spuBufPiece + rdOffset);
                 rdOffset += 4;
                 spu->subtitle_type = TYPE_SUBTITLE_SSA;
-                spu->buffer_size = currentLen + 1;  //256*(currentLen/256+1);
+                spu->buffer_size = currentLen + 1;
                 spu->spu_data = new uint8_t[spu->buffer_size]();
                 spu->pts = currentPts;
                 spu->m_delay = durationPts;
                 if (durationPts != 0) {
                     spu->m_delay += currentPts;
                 }
+                ret = 0;
 
                 memcpy(spu->spu_data, spuBufPiece + rdOffset, currentLen);
                 if (currentType == AV_CODEC_ID_SSA || currentType == AV_CODEC_ID_ASS) {
                     ret = __getAssSpu(spu->spu_data, spu->buffer_size, spu);
-                    SUBTITLE_LOGI("CODEC_ID_SSA  size is:%u ,data is:%s, currentLen=%d\n",
-                             spu->buffer_size, spu->spu_data, currentLen);
-                #ifdef NEED_ASS_REMOVE_STYLE
+                    SUBTITLE_LOGI("%s: CODEC_ID_SSA: size=%u ,data=%s, currentLen=%d",
+                                  __func__, spu->buffer_size, spu->spu_data, currentLen);
+#ifdef NEED_ASS_REMOVE_STYLE
                 } else if (currentType == AV_CODEC_ID_SUBRIP) {
-                    if (currentLen > 3 && spu->buffer_size >= currentLen) {
+                    if (currentLen > 3) {
                         for (size_t i = 0; i < currentLen - 2; ++i) {
-                            if (spu->spu_data[i] == 0x3C && spu->spu_data[i + 1] == 0x69 && spu->spu_data[i + 2] == 0x3E) {
+                            if (spu->spu_data[i] == 0x3C
+                                && spu->spu_data[i + 1] == 0x69
+                                && spu->spu_data[i + 2] == 0x3E) {
                                 spu->spu_data[i] = 0x20;
                                 spu->spu_data[i + 1] = 0x20;
                                 spu->spu_data[i + 2] = 0x20;
@@ -366,7 +368,10 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
                         }
 
                         for (size_t i = 0; i < currentLen - 3; ++i) {
-                            if (spu->spu_data[i] == 0x3C && spu->spu_data[i + 1] == 0x2F && spu->spu_data[i + 2] == 0x69 && spu->spu_data[i + 3] == 0x3E) {
+                            if (spu->spu_data[i] == 0x3C
+                                && spu->spu_data[i + 1] == 0x2Fs
+                                && spu->spu_data[i + 2] == 0x69
+                                && spu->spu_data[i + 3] == 0x3E) {
                                 spu->spu_data[i] = 0x20;
                                 spu->spu_data[i + 1] = 0x20;
                                 spu->spu_data[i + 2] = 0x20;
@@ -375,13 +380,9 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
                         }
                     }
                     ret = 0;
-                #endif
-                } else {
-                    ret = 0;
+#endif
                 }
-
                 break;
-
             case AV_CODEC_ID_MOV_TEXT:
                 durationPts = subPeekAsInt32(spuBufPiece + rdOffset);
                 rdOffset += 4;
@@ -400,50 +401,37 @@ int AssParser::getSpu(std::shared_ptr<AML_SPUVAR> spu) {
                     break;
                 }
                 memcpy(spu->spu_data, spuBufPiece + rdOffset, currentLen);
-                SUBTITLE_LOGI("CODEC_ID_TIME_TEXT   size is:    %u ,data is:    %s, currentLen=%d\n",
-                        spu->buffer_size, spu->spu_data, currentLen);
+                SUBTITLE_LOGI("%s: CODEC_ID_TIME_TEXT: size=%u ,data=%s, currentLen=%d",
+                              __func__, spu->buffer_size, spu->spu_data, currentLen);
                 ret = 0;
                 break;
-
             default:
-                SUBTITLE_LOGI("received invalid type %x", currentType);
+                SUBTITLE_LOGI("%s: received invalid type %x", __func__, currentType);
                 ret = -1;
                 break;
         }
 
         if (ret < 0) break;
 
-        //std::list<std::shared_ptr<AML_SPUVAR>> mDecodedSpu;
-        // TODO: add protect? only list operation may no need.
-        // TODO: sort
-         addDecodedItem(std::shared_ptr<AML_SPUVAR>(spu));
-         //every time only parse one package, otherwise will cover
-         //last frame data.
-         break;
+        addDecodedItem(std::shared_ptr<AML_SPUVAR>(spu));
+        break;
     }
 
-    //SUBTITLE_LOGI("[%s::%d] error! spuBuf=%x, \n", __FUNCTION__, __LINE__, spuBuf);
     if (spuBuf) {
         delete[] spuBuf;
-        //spuBuf = NULL;
     }
     return ret;
 }
-
 
 int AssParser::getInterSpu() {
     std::shared_ptr<AML_SPUVAR> spu(new AML_SPUVAR());
 
-    //TODO: common place
-    spu->sync_bytes = AML_PARSER_SYNC_WORD;//0x414d4c55;
+    spu->sync_bytes = AML_PARSER_SYNC_WORD;
     // simply, use new instead of malloc, can automatically initialize the buffer
     spu->useMalloc = false;
     spu->isSimpleText = true;
-    int ret = getSpu(spu);
-
-    return ret;
+    return getSpu(spu);
 }
-
 
 int AssParser::parse() {
     while (!mThreadExitRequested) {
@@ -459,8 +447,4 @@ void AssParser::dump(int fd, const char *prefix) {
     dprintf(fd, "%s ASS Parser\n", prefix);
     dumpCommon(fd, prefix);
     dprintf(fd, "%s  rest Length=%d\n", prefix, mRestLen);
-
 }
-
-
-
