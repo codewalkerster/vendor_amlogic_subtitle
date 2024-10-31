@@ -241,6 +241,8 @@ auto DecoderImpl::DetectEncodingScheme() -> EncodingScheme {
             has_eng = true;
         } else if (info.iso6392_language_code == ThreeCC("tgl")) {
             has_tgl = true;
+        } else {
+            ALOGE("DecoderImpl DetectEncodingScheme TCS:%d Iso6392_1anguage_code information:%d.", info.TCS, info.iso6392_language_code);
         }
     }
 
@@ -252,6 +254,9 @@ auto DecoderImpl::DetectEncodingScheme() -> EncodingScheme {
         encoding_scheme = EncodingScheme::kABNT_NBR_15606_1_Latin;
     } else if (has_eng || has_tgl) {
         encoding_scheme = EncodingScheme::kARIB_STD_B24_UTF8;  // Same as kISDB_T_Philippines_UTF8
+    } else {
+        ALOGE("DecoderImpl DetectEncodingScheme Iso6392_1anguage_code information is empty, default set to Latin language family.");
+        encoding_scheme = EncodingScheme::kABNT_NBR_15606_1_Latin;
     }
 
     return encoding_scheme;
