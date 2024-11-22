@@ -213,20 +213,22 @@ bool Presentation::syncCurrentPresentTime(int64_t pts)
         return false;
     }
 
+    auto diffPresentTimeMs = ns2ms(mCurrentPresentRelativeTime);
     mCurrentPresentRelativeTime = convertDvbTime2Ns(pts);
+    diffPresentTimeMs = ns2ms(mCurrentPresentRelativeTime) - diffPresentTimeMs;
     if (mParser) {
         mParser->notifyRenderTimeChanged(pts);
     }
 
     mStartPresentMonoTimeNs = systemTime(SYSTEM_TIME_MONOTONIC) - convertDvbTime2Ns(pts);
 
-    // Log information, do not rush out too much, throttle to 1/300.
+    // Log information, which is reported in each frame, so don't log it so frequently.
     static int i = 0;
-    if (i++ % 300 == 0) {
-        SUBTITLE_LOGI("%s: pts = %" PRId64 ", mCurrentPresentRelativeTime = %" PRId64
-                      "ms,  current = %" PRId64 " ms", __func__,
-                      pts, ns2ms(mCurrentPresentRelativeTime),
-                      ns2ms(systemTime(SYSTEM_TIME_MONOTONIC)));
+    if (i++ % 100 == 0) {
+        SUBTITLE_LOGI("%s: pts= %" PRId64 " (%" PRId64 " ms, diffPts= %" PRId64
+                      " ms), mStartPresentMonoTime= %" PRId64 " ms",
+                      __func__, pts, ns2ms(mCurrentPresentRelativeTime), diffPresentTimeMs,
+                      ns2ms(mStartPresentMonoTimeNs));
     }
 
     // External subtitle, just polling and showing the subtitle.
@@ -518,8 +520,10 @@ void Presentation::MessageProcess::handleExtSub(const Message& message)
                 auto remainMs = spu->m_delay / DVB_TIME_MULTI - ns2ms(timestampNs);
                 if (mLastShowingSpu != spu && remainMs >= MINIMUM_REMAIN_DISPLAY_TIME_MS) {
                     SUBTITLE_LOGI("Show SPU: TimeStamp:%" PRId64 " ms, SPU[pts:%" PRId64
-                                  " ms diff %" PRId64 " ms) data: %s (size=%d)]",
+                                  " ms m_delayDiff=%" PRId64 " ms, ptsDiff=%" PRId64
+                                  " ms) data: %s (size=%d)]",
                                   ns2ms(timestampNs), spu->pts/DVB_TIME_MULTI,
+                                  spu->m_delay/DVB_TIME_MULTI - ns2ms(timestampNs),
                                   spu->pts/DVB_TIME_MULTI - ns2ms(timestampNs),
                                   spu->spu_data, spu->buffer_size);
                     mPresent->mEmittedFaddingSpu.clear();
