@@ -274,49 +274,48 @@ bool Presentation::stopPresent()
     return true;
 }
 
-//ssa text subtitle may have two continuous packet while have same pts
+//ASS/SSA subtitle may have two continuous packets which have the same pts.
 bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1,
-                                          std::shared_ptr<AML_SPUVAR> spu2)
-{
-    if (spu1 != nullptr && spu2 != nullptr) {
-        if (spu1->isExtSub || spu1->isImmediatePresent || !spu1->isSimpleText) {
-            return false;
-        }
+                                          std::shared_ptr<AML_SPUVAR> spu2) {
+    if (!spu1 || !spu2) {
+        SUBTITLE_LOGE("Error: spu1 or spu2 is invalid");
+        return false;
+    }
+    if (spu1->isExtSub || spu1->isImmediatePresent || !spu1->isSimpleText) {
+        SUBTITLE_LOGE("%s: spu1 validation failed. isExtSub=%d, isImmediatePresent=%d, isSimpleText=%d",
+                      __func__, spu1->isExtSub, spu1->isImmediatePresent, spu1->isSimpleText);
+        return false;
+    }
+    if (spu2->isExtSub || spu2->isImmediatePresent || !spu2->isSimpleText) {
+        SUBTITLE_LOGE("%s: spu2 validation failed. isExtSub=%d, isImmediatePresent=%d, isSimpleText=%d",
+                      __func__, spu2->isExtSub, spu2->isImmediatePresent, spu2->isSimpleText);
+        return false;
+    }
+    if (spu1->pts != spu2->pts) {
+        SUBTITLE_LOGE("%s: the pts of spu1 and spu2 are different",__func__);
+        return false;
+    }
 
-        if (spu1->pts == spu2->pts) {
-            int dataLen1 = spu1->buffer_size;
-            int dataLen2 = spu2->buffer_size;
-            char* data = (char*) malloc(dataLen1);
-            if (!data) {
-                SUBTITLE_LOGE("%s data malloc error! \n", __func__);
-                return false;
-            }
-            memset(data, 0, dataLen1);
-            strcpy(data, (char *)spu1->spu_data);
-
-            //resize new buffer size
-            int size = dataLen1 + 1 + dataLen2 + 1;
-            SUBTITLE_LOGI("combine pts:%" PRId64 ",spu1 size:%d, spu2 size:%d, new buffer size:%d,",
-                          spu1->pts, dataLen1, dataLen2, size);
-
-            if (spu1->useMalloc) {
-                if (spu1->spu_data != nullptr) free(spu1->spu_data);
-            } else {
-                if (spu1->spu_data != nullptr) delete[] spu1->spu_data;
-            }
-            spu1->spu_data = new uint8_t[size]();
-            spu1->useMalloc = false;
-
-            strcat((char *)spu1->spu_data, data);
-            strcat((char *)spu1->spu_data, "\n");
-            strcat((char *)spu1->spu_data, (char *)spu2->spu_data);
-            strcat((char *)spu1->spu_data, "\0");
-            spu1->buffer_size = size;
-            free(data);
-            return true;
+    int dataLen1 = spu1->buffer_size;
+    int dataLen2 = spu2->buffer_size;
+    int newSize = dataLen1 + 1 + dataLen2 + 1;
+    SUBTITLE_LOGI("combine pts:%" PRId64 ", spu1 size:%d, spu2 size:%d, new buffer size:%d",
+                  spu1->pts, dataLen1, dataLen2, newSize);
+    uint8_t* newBuffer = new uint8_t[newSize]();
+    strncpy((char *)newBuffer, (char *)spu1->spu_data, dataLen1);
+    strncat((char *)newBuffer, "\n", 1);
+    strncat((char *)newBuffer, (char *)spu2->spu_data, dataLen2);
+    if (spu1->spu_data) {
+        if (spu1->useMalloc) {
+            free(spu1->spu_data);
+        } else {
+            delete[] spu1->spu_data;
         }
     }
-    return false;
+    spu1->spu_data = newBuffer;
+    spu1->buffer_size = newSize;
+    spu1->useMalloc = false;
+    return true;
 }
 
 bool static inline isMore32Bit(int64_t pts)

@@ -140,6 +140,10 @@ public:
 
             mThreadExitRequested = true;
         }
+        if (!mThread.joinable()) {
+            SUBTITLE_LOGE("%s: mThread is not joinable. Thread ID: %ld", __func__, mThread.get_id());
+            return true;
+        }
         mThread.join();
         SUBTITLE_LOGI("%s: END", __func__);
         return true;
