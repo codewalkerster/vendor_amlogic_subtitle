@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -26,24 +26,22 @@
 
 #pragma once
 
-#include <unistd.h>
-#include <fcntl.h>
-#include <malloc.h>
-#include <string>
-#include <regex>
 #include "list.h"
+#include <regex>
+
 #include "DataSource.h"
 
-#define  MALLOC(s)      malloc(s)
-#define  FREE(d)        free(d)
-#define  MEMCPY(d,s,l)  memcpy(d,s,l)
-#define  MEMSET(d,s,l)  memset(d,s,l)
-#define  MIN(x,y)       ((x)<(y)?(x):(y))
-#define  UTF8           unsigned char
-#define  UTF16          unsigned short
-#define  UTF32          unsigned int
-#define ERR             ((void *) -1)
-#define LINE_LEN        (1024 * 2)
+#define MALLOC(s)      malloc(s)
+#define FREE(d)        free(d)
+#define MEMCPY(d,s,l)  memcpy(d,s,l)
+#define MEMSET(d,s,l)  memset(d,s,l)
+#define MIN(x,y)       ((x)<(y)?(x):(y))
+#define MAX(a,b)       ((a)>(b)?(a):(b))
+#define UTF8           unsigned char
+#define UTF16          unsigned short
+#define UTF32          unsigned int
+#define ERR            ((void *) -1)
+#define LINE_LEN       (1024 * 2)
 
 enum {
     AML_ENCODING_NONE = 0,
@@ -102,36 +100,30 @@ static inline void removeHtmlToken(std::string &s) {
     } while (replaced);
 }
 
-
-
 class ExtSubStreamReader {
-
 public:
     ExtSubStreamReader(int charset, std::shared_ptr<DataSource> source);
     ~ExtSubStreamReader();
 
-    bool convertToUtf8(int charset, char *s, int inLen);
-    int ExtSubtitleEol(char p);
-    char *getLineFromString(char *source, char **dest);
-    char *strdup(char *src);
-    char *strIStr(const char *haystack, const char *needle);
-    void trimSpace(char *s) ;
-    char *getLine(char *s/*, int fd*/);
+    char* strdup(char* src);
+    char* strIStr(const char* haystack, const char* needle);
+    void trimSpace(char* s) ;
     void backtoLastLine();
     bool rewindStream();
-    size_t totalStreamSize();
+    bool isEolCharacter(char c);
+    char* getLine(char* s);
 
 private:
-    void detectEncoding();
-    int _convertToUtf8(int charset, const UTF16 *in, int inLen, UTF8 *out, int outMax);
+    char* mBuffer = nullptr;
+    int mBufferSize = 0;
+    unsigned mBufferReadOffset = 0;
+    unsigned mLastLineLen = 0;
+    int mEncoding = 0;
 
-    char *mBuffer;
-    int mBufferSize;
-    unsigned mFileRead;
-    unsigned mLastLineLen;
     std::shared_ptr<DataSource> mDataSource;
-    int mEncoding;
-    size_t mStreamSize;
+
+    void detectEncoding();
+    void convertToUtf8(int charset, char* s, int inLen);
+    int doConvertToUtf8(int charset, const UTF16* in, int inLen, UTF8* out, int outMax);
+    void freeBuffer();
 };
-
-

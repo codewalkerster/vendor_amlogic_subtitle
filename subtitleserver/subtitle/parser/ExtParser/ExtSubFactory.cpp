@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -61,6 +61,7 @@ int ExtSubFactory::detect(std::shared_ptr<DataSource> source)
     }
 
     int maxLineDetect = 0;
+    SUBTITLE_LOGI("%s: start detecting external subtitle type ...", __func__);
     while (maxLineDetect < 100) {
         char line[LINE_LEN] = {0};
         if (!reader->getLine(line)) {

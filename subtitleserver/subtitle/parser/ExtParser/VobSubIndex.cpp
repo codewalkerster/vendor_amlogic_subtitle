@@ -4,8 +4,7 @@
 #include "VobSubIndex.h"
 #include "VideoInfo.h"
 #include "SubtitleLog.h"
-#define MIN(a, b)    ((a)<(b)?(a):(b))
-#define MAX(a, b)    ((a)>(b)?(a):(b))
+
 #define UINT_MAX 0xFFFFFFFFFFFFFFFLL
 
 

@@ -506,7 +506,7 @@ void Presentation::MessageProcess::handleExtSub(const Message& message)
             mLooper->removeMessages(this, MSG_PTS_TIME_CHECK_SPU);
 
             if (mPresent->mParser == nullptr) {
-                SUBTITLE_LOGE("[%s:%d] Error! parser is nullptr", __func__, __LINE__);
+                SUBTITLE_LOGE("%s: parser is nullptr", __func__);
                 return;
             }
 
@@ -552,6 +552,7 @@ void Presentation::MessageProcess::handleExtSub(const Message& message)
         }
         break;
         case MSG_RESET_MESSAGE_QUEUE: {
+            SUBTITLE_LOGI("%s: MSG_RESET_MESSAGE_QUEUE", __func__);
             mPresent->mEmittedFaddingSpu.clear();
             mPresent->mRender->resetSubtitleItem();
         }
@@ -868,12 +869,13 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
         }
         break;
 
-        case MSG_RESET_MESSAGE_QUEUE:
+        case MSG_RESET_MESSAGE_QUEUE: {
+            SUBTITLE_LOGI("%s: MSG_RESET_MESSAGE_QUEUE", __func__);
             mPresent->mEmittedShowingSpu.clear();
             mPresent->mEmittedFaddingSpu.clear();
             mPresent->mRender->resetSubtitleItem();
-            break;
-
+        }
+        break;
         default:
         break;
     }

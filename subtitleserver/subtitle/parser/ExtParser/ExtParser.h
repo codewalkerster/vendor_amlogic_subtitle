@@ -72,9 +72,6 @@ struct subtitle_s {
     unsigned char *subdata; /* data for divx bmp subtitle */
 };
 
-
-
-
 class ExtParser: public Parser {
 public:
     ExtParser(std::shared_ptr<DataSource> source, int trackId);
@@ -83,7 +80,6 @@ public:
 
     virtual void dump(int fd, const char *prefix);
     void resetForSeek();
-
 
 protected:
     ExtSubData mSubData;

@@ -236,7 +236,6 @@ bool Subtitle::resetForSeek() {
     return true;
 }
 
-// TODO: actually, not used now
 void Subtitle::scheduleStart() {
     SUBTITLE_LOGI("scheduleStart:%d", mSubPrams->subType);
     if (nullptr != mDataSource) {

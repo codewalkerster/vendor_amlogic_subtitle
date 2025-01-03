@@ -79,7 +79,8 @@ std::shared_ptr<ExtSubItem> SubStationAlpha::decodedItem() {
         std::vector<std::string> items; // store the event sections in vector
         ss << line;
         int count = 0;
-        SUBTITLE_LOGI("%s", line);
+        // Keep it here for debug
+        // SUBTITLE_LOGI("%s: %s", __func__, line);
         for (count=0; count<ASS_EVENT_SECTIONS; count++) {
             if (!getline(ss, str, ',')) break;
             items.push_back(str);

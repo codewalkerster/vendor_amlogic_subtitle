@@ -38,7 +38,7 @@ typedef enum {
     E_SUBTITLE_FMQ = 0,
     E_SUBTITLE_DEV,
     E_SUBTITLE_FILE,
-    E_SUBTITLE_SOCK, /*deprecated*/
+    E_SUBTITLE_SOCK, // deprecated
     E_SUBTITLE_DEMUX,
     E_SUBTITLE_VBI,
     E_SUBTITLE_USERDATA,
@@ -129,10 +129,10 @@ public:
     virtual void dump(int fd, const char *prefix) = 0;
     int mDumpFd;
 
-    // for idx sub to parse sub picture.
-    int getExtraFd() {return mExtraFd;}
-protected:
+    // Used for SUB_IDX subtitle, which has one index file and sub data file
+    int getExtraFd() { return mExtraFd; }
 
+protected:
     std::mutex mLock;
     bool mNeedDumpSource;
     int mPlayerId;

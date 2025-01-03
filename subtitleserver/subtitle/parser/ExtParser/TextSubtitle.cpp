@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -24,28 +24,48 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define LOG_TAG "Extsubtitle_TextSubtitle"
+#define LOG_TAG "TextSubtitle_SubtitleDecoder"
 
 #include "TextSubtitle.h"
-#include "ExtSubStreamReader.h"
 #include "SubtitleLog.h"
 
-TextSubtitle::TextSubtitle(std::shared_ptr<DataSource> source)
-{
-    mSource = std::move(source);
-    mReader = std::make_shared<ExtSubStreamReader>(AML_ENCODING_NONE, mSource);
+#define sub_ms2pts(x) ((x) * 900)
+#define sub_pts2ms(x) ((x) / 900)
+
+namespace {
+
+uint64_t getClockTimeMs() {
+  timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return static_cast<uint64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / (1000 * 1000);
 }
 
-bool TextSubtitle::decodeSubtitles(int idxSubTrackId)
-{
+void printSpendClockTimeMs(const std::string& title, uint64_t startClockMs) {
+  auto now = getClockTimeMs();
+  auto spendTimeMs = now - startClockMs;
+  SUBTITLE_LOGI("%s: spent %" PRIu64 " ms", title.c_str(), spendTimeMs);
+};
+
+}; // namespace
+
+
+// Public Functions
+// =============================
+TextSubtitle::TextSubtitle(std::shared_ptr<DataSource> source) {
+    mSource = std::move(source);
+    mReader = std::make_unique<ExtSubStreamReader>(AML_ENCODING_NONE, mSource);
+}
+
+bool TextSubtitle::decodeSubtitles(int idxSubTrackId) {
     mSource->lseek(0, SEEK_SET);
     mIdxSubTrackId = idxSubTrackId;
 
-    SUBTITLE_LOGI("%s ....", __func__);
+    SUBTITLE_LOGI("%s: start decoding subtitles ...", __func__);
+    const auto startClockMs = getClockTimeMs();
     while (true) {
         auto item = this->decodedItem();
         if (item == nullptr) {
-            break; // No more data, EOF found.
+            break;
         }
 
         for (auto& it : item->lines) {
@@ -63,13 +83,17 @@ bool TextSubtitle::decodeSubtitles(int idxSubTrackId)
         mSubData.subtitles.push_back(item);
     }
 
+    printSpendClockTimeMs("decode_subtitles", startClockMs);
+
     // dump(0, nullptr);
     return true;
 }
 
-// consume subtitle
-std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem()
-{
+int TextSubtitle::totalItems() {
+    return mSubData.subtitles.size();
+}
+
+std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem() {
     if (totalItems() <= 0) {
         return nullptr;
     }
@@ -87,6 +111,7 @@ std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem()
         str.append("\n");
     });
 
+    spu->useMalloc = true;
     spu->spu_data = (unsigned char *)malloc(str.length()+1);
     memcpy(spu->spu_data, str.c_str(), str.length());
     spu->spu_data[str.length()] = 0;
@@ -96,31 +121,26 @@ std::shared_ptr<AML_SPUVAR> TextSubtitle::popDecodedItem()
     return spu;
 }
 
-// return total decoded, not consumed subtitles
-int TextSubtitle::totalItems()
-{
-    return mSubData.subtitles.size();
-}
-
-void TextSubtitle::dump(int fd, const char *prefix)
-{
+void TextSubtitle::dump(int fd, const char *prefix) {
     if (fd <= 0) {
         SUBTITLE_LOGI("Total: %zu", mSubData.subtitles.size());
         for (auto i : mSubData.subtitles) {
             SUBTITLE_LOGI("[%" PRId64 ":%" PRId64 "]",
                           sub_pts2ms(i->start), sub_pts2ms(i->end));
-            for (auto s :i->lines) {
+            for (auto s : i->lines) {
                 SUBTITLE_LOGI("    %s", s.c_str());
             }
         }
+        return;
     }
-    else {
-        dprintf(fd, "%s Total: %zu\n", prefix, mSubData.subtitles.size());
+
+    if (prefix) {
+        dprintf(fd, "prefix=%s: Total=%zu\n", prefix, mSubData.subtitles.size());
         for (auto i : mSubData.subtitles) {
             dprintf(fd, "%s [%" PRId64 ":%" PRId64 "]\n", prefix,
                     sub_pts2ms(i->start), sub_pts2ms(i->end));
-            for (auto s :i->lines) {
-                dprintf(fd, "%s    %s\n", prefix, s.c_str());
+            for (auto s : i->lines) {
+                dprintf(fd, "prefix=%s    %s\n", prefix, s.c_str());
             }
         }
     }

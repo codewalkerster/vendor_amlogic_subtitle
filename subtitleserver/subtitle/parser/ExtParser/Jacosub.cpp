@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -207,7 +207,7 @@ std::shared_ptr<ExtSubItem> Jacosub::decodedItem() {
         removeComments(s);
         strcpy(p, s.c_str());
 
-        for (q = line1; !mReader->ExtSubtitleEol(*p); ++p) {
+        for (q = line1; !mReader->isEolCharacter(*p); ++p) {
             unsigned int comment = 0;
             switch (*p) {
                 case '{':
@@ -258,7 +258,7 @@ std::shared_ptr<ExtSubItem> Jacosub::decodedItem() {
                     }
                     if ((*(p + 1) == '\\') || (*(p + 1) == '~') || (*(p + 1) == '{')) {
                         ++p;
-                    } else if (mReader->ExtSubtitleEol(*(p + 1))) {
+                    } else if (mReader->isEolCharacter(*(p + 1))) {
                         if (!mReader->getLine(directive)) {
                             free(line1);
                             free(line2);

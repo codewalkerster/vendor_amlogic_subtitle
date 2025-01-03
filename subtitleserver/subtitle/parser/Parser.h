@@ -184,6 +184,11 @@ public:
             return;
         }
 
+        if (mDecodedSpu.size() >= mMaxSpuItems) {
+           SUBTITLE_LOGE("%s: delete the first %d SPUs as exceed mMaxSpuItems=%d",
+                         __func__, mDecodedSpu.size() - mMaxSpuItems, mMaxSpuItems);
+        }
+
         while (mDecodedSpu.size() >= mMaxSpuItems) {
             mDecodedSpu.pop_front();
         }
@@ -219,7 +224,6 @@ public:
 
 protected:
     ParserEventNotifier *mNotifier;
-    // TODO: included in  spu manager class
     ParserSubdataNotifier *mDataNotifier;
     bool mThreadExitRequested;
     int mState;
@@ -242,7 +246,6 @@ protected:
     std::thread mThread;
 
 private:
-
     std::mutex mMutex;
     std::condition_variable mCv;
 

@@ -24,15 +24,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <string>
-#include <list>
-#include <thread>
-#include <algorithm>
-#include <functional>
-#include "SubtitleLog.h"
+#define LOG_TAG "ExtParser"
 
 #include "ExtParser.h"
-#include "ParserFactory.h"
+#include "SubtitleLog.h"
 #include "ExtSubFactory.h"
 
 
@@ -52,7 +47,7 @@ ExtParser::ExtParser(std::shared_ptr<DataSource> source, int trackId) {
     mIdxSubTrackId = trackId;
 
     mSubDecoder = ExtSubFactory::create(source);
-    if (mSubDecoder != nullptr) {
+    if (mSubDecoder) {
         mSubDecoder->decodeSubtitles(mIdxSubTrackId);
     }
 }
@@ -62,7 +57,6 @@ ExtParser::~ExtParser() {
     // call back may call parser, parser later destroy
     mSubIndex = 0;
 }
-
 
 void ExtParser::resetForSeek() {
     mSubIndex = 0;

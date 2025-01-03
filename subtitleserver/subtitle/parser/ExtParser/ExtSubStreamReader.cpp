@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -26,20 +26,18 @@
 
 #define LOG_TAG "ExtSubStreamReader"
 
-#include<sys/types.h>
-#include<unistd.h>
-
 #include "ExtSubStreamReader.h"
 
+namespace {
 
-static inline void dump(const char *buf, int size) {
+static inline void dump(const char* buf, int size) {
     char str[64] = {0};
 
-    for (int i=0; i<size; i++) {
+    for (int i = 0; i < size; ++i) {
         char chars[6] = {0};
         sprintf(chars, "%02x ", buf[i]);
         strcat(str, chars);
-        if (i%8 == 7) {
+        if (i % 8 == 7) {
             SUBTITLE_LOGI("%s", str);
             str[0] = str[1] = 0;
         }
@@ -47,73 +45,85 @@ static inline void dump(const char *buf, int size) {
     SUBTITLE_LOGI("%s", str);
 }
 
+}; // namespace
 
+
+// Public Functions
+// ==========================
 ExtSubStreamReader::ExtSubStreamReader(int charset, std::shared_ptr<DataSource> source) {
-    mBuffer = NULL;
     mDataSource = source;
     mEncoding = charset;
 
-    mBufferSize = 0;
-    mFileRead = 0;
-    mLastLineLen = 0;
-
-
     mDataSource->lseek(0, SEEK_SET);
-    mStreamSize = mDataSource->availableDataSize();
 
-    // if setup is utf8, we do an auto detect.
+    // Try detecting the file encode type if mEncoding is not assigned.
     if (mEncoding == AML_ENCODING_NONE) {
         detectEncoding();
     }
 }
 
-// detect BOM and discard the leading BOM
-void ExtSubStreamReader::detectEncoding() {
-    if (mDataSource == nullptr) return;
-
-    char first[3];
-    mDataSource->lseek(0, SEEK_SET);
-    int r = mDataSource->read(first, 3);
-    if (r < 3) {
-        mDataSource->lseek(0, SEEK_SET);
-        return;
-    }
-
-    // TODO: utf32 used rarely, we may also need check it.
-    if (first[0] == 0xFF && first[1] == 0xFE) {
-        mEncoding = AML_ENCODING_UTF16;
-        mDataSource->lseek(2, SEEK_SET);
-    } else if (first[0] == 0xFE && first[1] == 0xFF) {
-        mEncoding = AML_ENCODING_UTF16BE;
-        mDataSource->lseek(2, SEEK_SET);
-    } else if (first[0] == 0xEF && first[1] == 0xBB && first[2] == 0xBF) {
-        mEncoding = AML_ENCODING_UTF8;
-        mDataSource->lseek(3, SEEK_SET);
-    } else {
-         mDataSource->lseek(0, SEEK_SET);
-        // NO BOM, auto detect, almost all use utf8, we current NONE treat as utf8
-    }
-}
-
-
 ExtSubStreamReader::~ExtSubStreamReader() {
-    if (mBuffer != NULL) {
-        free(mBuffer);
-        mBuffer = NULL;
+    freeBuffer();
+}
+
+// TODO: it is dangerous to malloc here but free outside.
+char* ExtSubStreamReader::strdup(char* src) {
+    char *ret;
+    int len;
+    len = strlen(src);
+    ret = (char *)MALLOC(len + 1);
+    if (ret) {
+        strcpy(ret, src);
     }
+    return ret;
 }
 
-size_t ExtSubStreamReader::totalStreamSize() {
-    return mStreamSize;
+char* ExtSubStreamReader::strIStr(const char* haystack, const char* needle) {
+    int len = 0;
+    const char* p = haystack;
+    if (!(haystack && needle)) {
+        return NULL;
+    }
+    len = strlen(needle);
+    while (*p != '\0') {
+        if (strncasecmp(p, needle, len) == 0)
+            return (char *)p;
+        p++;
+    }
+    return NULL;
 }
 
-/*
-    Not Thread safe, TODO: fix it.
-*/
+void ExtSubStreamReader::trimSpace(char* s) {
+    int i = 0;
+    int len = strlen(s) + 1;
+    char* r = (char *)malloc(len);
+    memset(r, 0, len);
+
+    while (isspace(s[i])) {
+        ++i;
+    }
+
+    strcpy(r, s + i);
+
+    int k = strlen(r) - 1;
+    while (k > 0 && isspace(r[k])) {
+        r[k--] = '\0';
+    }
+
+    memcpy(s, r, len);  // Avoid strcpy memory overlap warning
+    free(r);
+}
+
+void ExtSubStreamReader::backtoLastLine() {
+    mBufferReadOffset =
+        mBufferReadOffset > mLastLineLen ? mBufferReadOffset - mLastLineLen : 0;
+}
+
+// TODO: fix it, Not Thread safe
 bool ExtSubStreamReader::rewindStream() {
     if (mDataSource != nullptr && mDataSource->lseek(0, SEEK_SET) > 0) {
         mBufferSize = 0;
-        mFileRead = 0;
+        mBufferReadOffset = 0;
         mLastLineLen = 0;
         free(mBuffer);
         mBuffer = nullptr;
@@ -122,7 +132,184 @@ bool ExtSubStreamReader::rewindStream() {
     return false;
 }
 
-int ExtSubStreamReader::_convertToUtf8(int charset, const UTF16 *in, int inLen, UTF8 *out, int outMax) {
+bool ExtSubStreamReader::isEolCharacter(char c) {
+    return (c == '\r' || c == '\n' || c == '\0');
+}
+
+char* ExtSubStreamReader::getLine(char* s) {
+    if (mEncoding < AML_ENCODING_NONE || mEncoding > AML_ENCODING_UTF16BE) {
+        SUBTITLE_LOGE("%s: unsupported mEncoding %d", __func__, mEncoding);
+        return nullptr;
+    }
+
+    if (!mBuffer) {
+        // Reserve two lines buffer because need combine the previous line's remain
+        // size with the new line
+        mBuffer = (char*)MALLOC(LINE_LEN * 2);
+        if (mBuffer == nullptr) {
+            SUBTITLE_LOGE("%s: %m", __func__);
+            return nullptr;
+        }
+        mBufferReadOffset = 0;
+        mLastLineLen = 0;
+        mBufferSize = mDataSource->read(mBuffer, LINE_LEN);
+    }
+
+    if (mBufferSize <= 0) {
+        SUBTITLE_LOGI("%s: no more data", __func__);
+        return nullptr;
+    }
+
+    int offset = mBufferReadOffset;
+    while (offset <= mBufferSize) {
+        bool foundEol = false;
+
+        // '\n' is the default LF(Line Feed)
+        int lineBreakTagLen = 1;
+
+        // step 1: try finding the End Of Line position
+        if (mEncoding == AML_ENCODING_NONE || mEncoding == AML_ENCODING_UTF8) {
+            if (offset < mBufferSize) {
+                if (mBuffer[offset] == '\n' || mBuffer[offset] == '\0') {
+                    foundEol = true;
+                }
+            }
+        } else if (mEncoding == AML_ENCODING_UTF16BE) {
+            // AML_ENCODING_UTF16BE is available from TV-35678
+            lineBreakTagLen = 4; // '00 0d 00 0a'
+            if (offset + lineBreakTagLen < mBufferSize) {
+                if (mBuffer[offset] == 0x0
+                    && mBuffer[offset+1] == 0xd
+                    && mBuffer[offset+2] == 0x0
+                    && mBuffer[offset+3] == 0xa) {
+                    foundEol = true;
+                }
+            }
+        } else if (mEncoding == AML_ENCODING_UTF16) {
+            lineBreakTagLen = 4; // '0d 00 0a 0d'
+            if (offset + lineBreakTagLen < mBufferSize) {
+                 if (mBuffer[offset] == 0xd
+                    && mBuffer[offset+1] == 0x0
+                    && mBuffer[offset+2] == 0xa
+                    && mBuffer[offset+3] == 0x0) {
+                    foundEol = true;
+                }
+            }
+        }
+
+        // step 2: move to the next character if didn't find EOL
+        if (!foundEol) {
+            ++offset;
+            if (offset < mBufferSize) {
+                continue;
+            }
+
+            // step 2.1: Try reading more buffer if didn't find the EOL and buffer
+            // is not enough to check
+            if (mBufferSize - mBufferReadOffset >= LINE_LEN) {
+                SUBTITLE_LOGE("%s: unsupport large line, the line size > %d",
+                              __func__, LINE_LEN);
+                freeBuffer();
+                return nullptr;
+            }
+
+            auto remainBufferSize = mBufferSize - mBufferReadOffset;
+            memmove(mBuffer, mBuffer + mBufferReadOffset, remainBufferSize);
+            auto readSize = mDataSource->read(mBuffer + remainBufferSize, LINE_LEN);
+            if (readSize <= 0) {
+                SUBTITLE_LOGI("%s: reach end of file", __func__);
+                if (readSize < 0) {
+                    SUBTITLE_LOGE("%s: fail to read more data: %m", __func__);
+                    return nullptr;
+                }
+                if (remainBufferSize > 0) {
+                    MEMCPY(s, mBuffer, remainBufferSize);
+                    freeBuffer();
+                    return s;
+                }
+                return nullptr;
+            }
+
+            mBufferSize = remainBufferSize + readSize;
+            mBufferReadOffset = 0;
+            mLastLineLen = 0;
+            offset = 0;
+            continue;
+        }
+
+        // step 3: return line data if found
+        auto dataLen = offset - mBufferReadOffset;
+        MEMCPY(s, mBuffer + mBufferReadOffset, dataLen + 1);
+        s[dataLen] = '\0'; // Replace tag to end of string
+        if (s[dataLen - 1] == '\r') {
+            // Windows file formats EOL with CRLF(\r\n)
+            s[dataLen - 1] = '\0';
+        }
+        mLastLineLen = dataLen + lineBreakTagLen;
+        mBufferReadOffset = offset + lineBreakTagLen;
+        return s;
+    }
+
+    SUBTITLE_LOGE("%s: something is wrong, offset=%d, mBufferSize=%d, mBufferReadOffset=%d",
+                  __func__, offset, mBufferSize, mBufferReadOffset);
+    return nullptr;
+}
+
+// Private Functions
+// ==========================
+void ExtSubStreamReader::detectEncoding() {
+    if (mDataSource == nullptr) return;
+
+    char header[3] = {0};
+    mDataSource->lseek(0, SEEK_SET);
+    auto ret = mDataSource->read(header, 3);
+    if (ret < 3) {
+        mDataSource->lseek(0, SEEK_SET);
+        return;
+    }
+
+    // TODO: to check if AML_ENCODING_UTF32/AML_ENCODING_UTF32BE is really not used.
+
+    if (header[0] == 0xFF && header[1] == 0xFE) {
+        mEncoding = AML_ENCODING_UTF16;
+        mDataSource->lseek(2, SEEK_SET);
+    } else if (header[0] == 0xFE && header[1] == 0xFF) {
+        // UTF16 Big Endian
+        mEncoding = AML_ENCODING_UTF16BE;
+        mDataSource->lseek(2, SEEK_SET);
+    } else if (header[0] == 0xEF && header[1] == 0xBB && header[2] == 0xBF) {
+        mEncoding = AML_ENCODING_UTF8;
+        mDataSource->lseek(3, SEEK_SET);
+    } else {
+        // NO BOM, used default AML_ENCODING_NONE
+        mDataSource->lseek(0, SEEK_SET);
+    }
+}
+
+void ExtSubStreamReader::convertToUtf8(int charset, char* s, int inLen) {
+    UTF8 *utf8Str = nullptr;
+    int outLen = 0;
+
+    if (charset == AML_ENCODING_UTF8 || charset == AML_ENCODING_NONE) {
+        return;
+    }
+
+    utf8Str = (unsigned char *)malloc(inLen * 2 + 1);
+    if (utf8Str == nullptr) {
+        return;
+    }
+    memset(utf8Str, 0x0, inLen * 2 + 1);
+    outLen = doConvertToUtf8(charset, (const UTF16 *)s, inLen / 2, utf8Str, inLen * 2);
+    if (outLen > 0) {
+        memcpy(s, utf8Str, outLen);
+        s[outLen] = '\0';
+    }
+
+    free(utf8Str);
+}
+
+int ExtSubStreamReader::doConvertToUtf8(int charset, const UTF16* in,
+                                        int inLen, UTF8* out, int outMax) {
     int outLen = 0;
     if (out) {
         // Output buffer passed in; actually encode data.
@@ -142,7 +329,7 @@ int ExtSubStreamReader::_convertToUtf8(int charset, const UTF16 *in, int inLen, 
                 if ((outMax -= 2) < 0) {
                     return -1;
                 }
-                *out++ = (UTF8)(0xC0 | ((ch >> 6) & 0x1F));//1
+                *out++ = (UTF8)(0xC0 | ((ch >> 6) & 0x1F)); // 1
                 *out++ = (UTF8)(0x80 | (ch & 0x3F));
                 outLen += 2;
             } else if (ch >= 0xD800 && ch <= 0xDBFF) {
@@ -164,7 +351,7 @@ int ExtSubStreamReader::_convertToUtf8(int charset, const UTF16 *in, int inLen, 
                 if ((outMax -= 4) < 0) {
                     return -1;
                 }
-                *out++ = (UTF8)(0xF0 | ((ucs4 >> 18) & 0x07));//2
+                *out++ = (UTF8)(0xF0 | ((ucs4 >> 18) & 0x07)); // 2
                 *out++ = (UTF8)(0x80 | ((ucs4 >> 12) & 0x3F));
                 *out++ = (UTF8)(0x80 | ((ucs4 >> 6) & 0x3F));
                 *out++ = (UTF8)(0x80 | (ucs4 & 0x3F));
@@ -216,245 +403,12 @@ Encode3:
     return outLen;
 }
 
-bool ExtSubStreamReader::convertToUtf8(int charset, char *s, int inLen) {
-    UTF8 *utf8Str = NULL;
-    int outLen = 0;
-
-    if (charset == AML_ENCODING_UTF8 || charset == AML_ENCODING_NONE) {
-        // No need convert
-        return true;
+void ExtSubStreamReader::freeBuffer() {
+    if (mBuffer) {
+        free(mBuffer);
+        mBuffer = nullptr;
     }
-
-    utf8Str = (unsigned char *)malloc(inLen * 2 + 1);
-    if (utf8Str == NULL) {
-        return false;
-    }
-    memset(utf8Str, 0x0, inLen * 2 + 1);
-    outLen = _convertToUtf8(charset, (const UTF16 *)s, inLen / 2, utf8Str, inLen * 2);
-    if (outLen > 0) {
-        memcpy(s, utf8Str, outLen);
-        s[outLen] = '\0';
-    }
-
-    free(utf8Str);
-    return true;
+    mBufferSize = 0;
+    mBufferReadOffset = 0;
+    mLastLineLen = 0;
 }
-
-
-/* internal string manipulation functions */
-int ExtSubStreamReader::ExtSubtitleEol(char p) {
-    return (p == '\r' || p == '\n' || p == '\0');
-}
-
-char *ExtSubStreamReader::getLineFromString(char *source, char **dest) {
-    int len = 0;
-    char *p = source;
-    while (!ExtSubtitleEol(*p) && *p != '|') {
-        p++, len++;
-    }
-    if (!dest) {
-        return (char *)ERR;
-    }
-    *dest = (char *)malloc(len + 1);
-    strncpy(*dest, source, len);
-    (*dest)[len] = 0;
-    while (*p == '\r' || *p == '\n' || *p == '|') {
-        p++;
-    }
-    if (*p) {
-        /* not-last text field */
-        return p;
-    } else {
-        /* last text field */
-        return NULL;
-    }
-}
-
-char *ExtSubStreamReader::strdup(char *src) {
-    char *ret;
-    int len;
-    len = strlen(src);
-    ret = (char *)MALLOC(len + 1);
-    if (ret) {
-        strcpy(ret, src);
-    }
-    return ret;
-}
-
-char *ExtSubStreamReader::strIStr(const char *haystack, const char *needle) {
-    int len = 0;
-    const char *p = haystack;
-    if (!(haystack && needle)) {
-        return NULL;
-    }
-    len = strlen(needle);
-    while (*p != '\0') {
-        if (strncasecmp(p, needle, len) == 0)
-            return (char *)p;
-        p++;
-    }
-    return NULL;
-}
-
-void ExtSubStreamReader::trimSpace(char *s) {
-    int i = 0;
-    int len = strlen(s) + 1;
-    char *r = (char *)malloc(len);
-    memset(r, 0, len);
-
-    while (isspace(s[i]))
-        ++i;
-
-    strcpy(r, s + i);
-
-    int k = strlen(r) - 1;
-    while (k > 0 && isspace(r[k]))
-        r[k--] = '\0';
-
-    memcpy(s, r, len);  // avoid strcpy memory overlap warning
-    free(r);
-}
-
-// TODO: rewrite this part
-char *ExtSubStreamReader::getLine(char *s/*, int fd*/) {
-    int offset = mFileRead;
-    int copied;
-
-    if (!mBuffer) {
-        mBuffer = (char *)MALLOC(LINE_LEN*2);
-        if (mBuffer == nullptr) {
-            SUBTITLE_LOGE("1???");
-            return nullptr;
-        }
-
-        mFileRead = 0;
-        mLastLineLen = 0;
-        offset = 0;
-        mBufferSize = mDataSource->read(mBuffer, LINE_LEN);
-    }
-
-    if (mBufferSize <= 0 || offset >= mBufferSize) {
-        return nullptr;
-    }
-
-    int lineLen = 0;
-    int lineCharLen = 0;
-
-     //find one line end, TODO: maybe write in a function
-     while (offset <= mBufferSize) {
-        bool found = false;
-
-        // found line end position.
-        if ((mEncoding == AML_ENCODING_NONE) || (mEncoding == AML_ENCODING_UTF8)) {
-            lineCharLen = 1; // '\n'
-            if (mBuffer[offset] == '\n' || mBuffer[offset] == '\0') {//eof maybe '\0', offset: mBufferSize+1
-                found = true;
-            } else {
-                offset++;
-                if (offset > mBufferSize) {
-                    SUBTITLE_LOGE("Error! Cannot find end of line, discard following line.");
-                    return nullptr;
-                }
-                continue;
-            }
-        } else if (mEncoding == AML_ENCODING_UTF16BE) {//TV-35678
-            lineCharLen = 4; // '00 0d 00 0a'
-            if (offset < mBufferSize -lineCharLen) {// should not access out of bound.
-                if ((mBuffer[offset] == 0) && (mBuffer[offset+1] == 0xd)
-                  && (mBuffer[offset+2] == 0)  && (mBuffer[offset+3] == 0xa)) {
-                    found = true;
-                } else {
-                  offset++;
-                  continue;
-                }
-            }
-        } else if (mEncoding == AML_ENCODING_UTF16) {
-            lineCharLen = 4; // '0d 00 0a 0d'
-            if (offset < mBufferSize -lineCharLen) { // should not access out of bound.
-                if ((mBuffer[offset] == 0xd) && (mBuffer[offset+1] == 0x0)
-                  && (mBuffer[offset+2] == 0xa)  && (mBuffer[offset+3] == 0)) {
-                    found = true;
-                } else {
-                  offset++;
-                  continue;
-                }
-            }
-        } else {
-            SUBTITLE_LOGE("Error! invalid encoding, current not support");
-            return nullptr;
-        }
-
-        // found one line string! copy to outbuffer and translate to utf8!
-        if (found) {
-            lineLen = offset - mFileRead;
-            MEMCPY(s, mBuffer + mFileRead, lineLen);
-            s[lineLen] = '\0';
-            //SUBTITLE_LOGI("found: %p %s lineLen=%d [%d %d] \n", mBuffer + mFileRead, s, lineLen, offset, mFileRead);
-
-            // eat the last newline!
-            mLastLineLen = lineLen + lineCharLen;
-            mFileRead = offset + lineCharLen;
-            break;
-        } else {
-            // not found end of line. resume reading data and do again.
-
-            if ((mBufferSize -mFileRead) >= LINE_LEN) {
-                SUBTITLE_LOGE("Error! line is too long( > %d byte), ignore", LINE_LEN);
-                free(mBuffer);
-                mBufferSize = mFileRead = 0;
-                mLastLineLen = 0;
-                mBuffer = nullptr;
-                return nullptr;
-            }
-
-            // copy the remainder to search line again.
-            int remainderSize = mBufferSize -mFileRead;
-            memmove(mBuffer, mBuffer + mFileRead, remainderSize);
-
-            int read = mDataSource->read(mBuffer+remainderSize, LINE_LEN);
-            if (read > 0) {
-                // resume check again...
-                mBufferSize = remainderSize + read;
-                mFileRead = offset = 0;
-                mLastLineLen = 0;
-                SUBTITLE_LOGI("read more: %d", read);
-                continue;
-            } else {
-                // no more data, then, then the remainder is the last line in sub file.
-                if (remainderSize > 0) {
-                    lineLen = remainderSize;
-                    MEMCPY(s, mBuffer, lineLen);
-                    s[lineLen] = '\0';
-                    free(mBuffer);
-                    mBufferSize = mFileRead = 0;
-                    mLastLineLen = 0;
-                    mBuffer = nullptr;
-                    SUBTITLE_LOGE("End of line found!");
-                    break;
-                } else {
-                    return nullptr;
-                }
-            }
-        }
-    }
-
-    if (lineLen > 0) {
-        convertToUtf8(mEncoding, s, lineLen);
-        // kill windows \r\n
-        if (s[lineLen-1] =='\r') s[lineLen-1] = 0;
-        return s;
-    } else if (lineLen == 0) { // a blank new line
-        return s;
-    } else {
-        SUBTITLE_LOGE("??? lineLen=%d %d %d", lineLen, offset, mFileRead);
-        return nullptr;
-    }
-}
-void ExtSubStreamReader::backtoLastLine() {
-    if (mFileRead  > mLastLineLen) {
-        mFileRead = mFileRead - mLastLineLen;
-    }
-    else
-        mFileRead = 0;
-}
-

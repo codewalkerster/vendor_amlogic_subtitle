@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -38,19 +38,21 @@
 
 
 FileSource::FileSource(int fd, int extFd) {
-    SUBTITLE_LOGI("%s fd:%d", __func__, fd);
+    SUBTITLE_LOGI("%s: mFd=%d, extFd=%d", __func__, fd, extFd);
     mFd = fd;
     if (mFd > 0) {
         ::lseek(mFd, 0, SEEK_SET);
     }
 
+    // mExtraFd is used for SUB_IDX subtitle, which has one index file
+    // and one sub data file
     if (extFd > 0) {
         mExtraFd = extFd;
     }
 }
 
 FileSource::~FileSource() {
-    SUBTITLE_LOGI("%s mFd:%d", __func__, mFd);
+    SUBTITLE_LOGI("%s: mFd=%d", __func__, mFd);
     if (mFd > 0) {
         ::close(mFd);
         mFd = -1;
@@ -61,7 +63,7 @@ FileSource::~FileSource() {
     }
 }
 
-int FileSource::onData(const char *buffer, int len) {
+int FileSource::onData(const char* buffer, int len) {
     return 0;
 }
 
@@ -71,13 +73,14 @@ bool FileSource::start() {
 }
 
 bool FileSource::stop() {
-    SUBTITLE_LOGI("%s mFd:%d", __func__, mFd);
+    SUBTITLE_LOGI("%s mFd=%d", __func__, mFd);
     return true;
 }
 
 SubtitleIOType FileSource::type() {
     return E_SUBTITLE_FILE;
 }
+
 bool FileSource::isFileAvailable() {
     SUBTITLE_LOGI("%s", __func__);
     return (mDumpFd > 0);
@@ -92,7 +95,6 @@ size_t FileSource::lseek(int offSet, int whence) {
     }
 }
 
-
 size_t FileSource::availableDataSize() {
     int len = 0;
     if (mFd > 0) {
@@ -102,19 +104,21 @@ size_t FileSource::availableDataSize() {
     return len;
 }
 
+size_t FileSource::read(void* buffer, size_t size) {
+    auto ret = ::read(mFd, buffer, size);
+    if (ret < 0) {
+        SUBTITLE_LOGE("%s: %m", __func__);
+        // Read one more time
+        if (errno == EINTR || errno == EAGAIN) {
+            ret = ::read(mFd, buffer, size);
+        }
+    }
 
-size_t FileSource::read(void *buffer, size_t size) {
-    int data_size = size, r = 0, read_done = 0;
-    char *buf = (char *)buffer;
-    do {
-        errno = 0;
-        r = ::read(mFd, buf + read_done, data_size);
-    } while (r <= 0 && (errno == EINTR || errno == EAGAIN));
-    SUBTITLE_LOGI("have read r=%d, mRdFd:%d, size:%d errno:%d(%s)", r, mFd, size, errno, strerror(errno));
-    return r;
+    SUBTITLE_LOGI("%s: ret=%d, requested size=%d", __func__, ret, size);
+    return ret;
 }
 
-void FileSource::dump(int fd, const char *prefix) {
+void FileSource::dump(int fd, const char* prefix) {
+    (void)prefix;
     dprintf(fd, "\nFileSource:\n");
 }
-

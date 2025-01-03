@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -27,13 +27,12 @@
 #pragma once
 
 #include <list>
+
 #include "DataSource.h"
 #include "ExtSubStreamReader.h"
 #include "SubtitleTypes.h"
 
 #define SUB_MAX_TEXT  30
-#define sub_ms2pts(x) ((x) * 900)
-#define sub_pts2ms(x) ((x) / 900)
 
 typedef enum
 {
@@ -72,10 +71,8 @@ struct ExtSubData {
     std::list<std::shared_ptr<ExtSubItem>> subtitles;
 };
 
-class TextSubtitle
-{
+class TextSubtitle {
 public:
-    TextSubtitle() = delete;
     explicit TextSubtitle(std::shared_ptr<DataSource> source);
     virtual ~TextSubtitle() = default;
 
@@ -87,9 +84,11 @@ public:
 
 protected:
     ExtSubData mSubData;
-    std::shared_ptr<DataSource> mSource;
-    std::shared_ptr<ExtSubStreamReader> mReader;
     int mIdxSubTrackId = -1;
 
+    std::shared_ptr<DataSource> mSource;
+    std::unique_ptr<ExtSubStreamReader> mReader;
+
+    // Only decode one subtitle. TODO: rename to decodeNextItem()
     virtual std::shared_ptr<ExtSubItem> decodedItem() = 0;
 };
