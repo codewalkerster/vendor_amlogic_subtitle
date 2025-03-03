@@ -46,6 +46,8 @@ public:
     virtual bool hideObjectIdSubtitleItem(int type, int objectId) = 0;
     virtual void resetSubtitleItem() = 0;;
     virtual void removeSubtitleItem(std::shared_ptr<AML_SPUVAR> spu) = 0;
+    virtual bool show() { return true; }
+    virtual bool hide() { return true; }
 };
 
 #endif

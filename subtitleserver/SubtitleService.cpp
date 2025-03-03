@@ -580,6 +580,20 @@ void SubtitleService::setStartTimeStamp(int startTime) {
     }
 }
 
+bool SubtitleService::show() {
+    if (mSubtiles != nullptr) {
+        return mSubtiles->show();
+    }
+    return false;
+}
+
+bool SubtitleService::hide() {
+    if (mSubtiles != nullptr) {
+        return mSubtiles->hide();
+    }
+    return false;
+}
+
 void SubtitleService::dump(int fd) {
     dprintf(fd, "\n\n SubtitleService:\n");
     dprintf(fd, "--------------------------------------------------------------------------------------\n");

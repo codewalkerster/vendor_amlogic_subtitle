@@ -86,6 +86,9 @@ public:
     bool startFmqReceiver(std::unique_ptr<FmqReader> reader);
     bool stopFmqReceiver();
 
+    bool show();
+    bool hide();
+
 private:
     std::shared_ptr<Subtitle> mSubtiles;
 

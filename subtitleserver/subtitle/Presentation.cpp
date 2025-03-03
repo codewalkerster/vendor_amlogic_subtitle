@@ -364,6 +364,21 @@ void Presentation::notifySubdataAdded()
     }
 }
 
+
+bool Presentation::show() {
+    if (mRender != nullptr) {
+        return mRender->show();
+    }
+    return false;
+}
+
+bool Presentation::hide() {
+    if (mRender != nullptr) {
+        return mRender->hide();
+    }
+    return false;
+}
+
 void Presentation::dump(int fd, const char *prefix)
 {
     dprintf(fd, "%s Presentation:\n", prefix);

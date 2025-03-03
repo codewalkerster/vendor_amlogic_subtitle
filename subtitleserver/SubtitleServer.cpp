@@ -606,6 +606,7 @@ Return<void> SubtitleServer::removeCallback(const sp<ISubtitleCallback>& callbac
 // This only valid for global fallback display.
 Return<Result> SubtitleServer::show(int32_t sId) {
     Watchdog watchdog(kTimeout);
+#ifdef ANDROID
     SubtitleHidlParcel parcel;
     android::AutoMutex _l(mLock);
     mFallbackPlayStarted = true;
@@ -615,10 +616,19 @@ Return<Result> SubtitleServer::show(int32_t sId) {
 
     // Can send display Data to subtitle service now.
     return Result {};
+#else
+    std::shared_ptr<SubtitleService> ss = getSubtitleService(sId);
+    if (ss == nullptr) {
+        return Result::FAIL;
+    }
+    bool ret = ss->show();
+    return ret ? Result::OK : Result::FAIL;
+#endif
 }
 
 Return<Result> SubtitleServer::hide(int32_t sId) {
     Watchdog watchdog(kTimeout);
+#ifdef ANDROID
     SubtitleHidlParcel parcel;
     android::AutoMutex _l(mLock);
     mFallbackPlayStarted = false;
@@ -626,6 +636,14 @@ Return<Result> SubtitleServer::hide(int32_t sId) {
     parcel.bodyInt.resize(0);
     sendUiEvent(parcel);
     return Result {};
+#else
+    std::shared_ptr<SubtitleService> ss = getSubtitleService(sId);
+    if (ss == nullptr) {
+        return Result::FAIL;
+    }
+    bool ret = ss->hide();
+    return ret ? Result::OK : Result::FAIL;
+#endif
 }
 
 /*CMD_UI_SHOW = 0,

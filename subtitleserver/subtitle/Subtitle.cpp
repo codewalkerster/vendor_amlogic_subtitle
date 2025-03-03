@@ -216,6 +216,20 @@ bool Subtitle::setParameter(void *params) {
     return true;
 }
 
+bool Subtitle::show() {
+    if (mPresentation) {
+        return mPresentation->show();
+    }
+    return false;
+}
+
+bool Subtitle::hide() {
+    if (mPresentation) {
+        return mPresentation->hide();
+    }
+    return false;
+}
+
 bool Subtitle::resetForSeek() {
     mPendingAction = ACTION_SUBTITLE_RESET_FOR_SEEK;
     mCv.notify_all();

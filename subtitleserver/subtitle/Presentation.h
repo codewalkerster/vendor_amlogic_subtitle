@@ -56,7 +56,8 @@ public:
     bool resetForSeek();
     bool combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1, std::shared_ptr<AML_SPUVAR> spu2);
     bool compareBitAndSyncPts(std::shared_ptr<AML_SPUVAR> spu, int64_t pts);
-
+    bool show();
+    bool hide();
 
     virtual void notifySubdataAdded();
 
