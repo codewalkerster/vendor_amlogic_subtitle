@@ -240,6 +240,10 @@ char* ExtSubStreamReader::getLine(char* s) {
         // step 3: return line data if found
         auto dataLen = offset - mBufferReadOffset;
         MEMCPY(s, mBuffer + mBufferReadOffset, dataLen + 1);
+        if (dataLen > 0) {
+            convertToUtf8(mEncoding, s, dataLen);
+        }
+
         s[dataLen] = '\0'; // Replace tag to end of string
         if (s[dataLen - 1] == '\r') {
             // Windows file formats EOL with CRLF(\r\n)
