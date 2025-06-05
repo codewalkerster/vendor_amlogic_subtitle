@@ -616,3 +616,14 @@ void SubtitleService::dump(int fd) {
         return mSubtiles->dump(fd);
     }
 }
+
+
+bool SubtitleService::setSubTranslationLanguage(const std::string& lang) {
+    if (mSubtiles == nullptr) {
+        SUBTITLE_LOGI("%s: subtitle is not ready, lang = %s",
+                      __func__, lang.empty() ? " " : lang.c_str());
+        return false;
+    }
+    return mSubtiles->setSubTranslationLanguage(lang);
+}
+

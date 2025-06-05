@@ -230,6 +230,16 @@ bool Subtitle::hide() {
     return false;
 }
 
+bool Subtitle::setSubTranslationLanguage(const std::string& lang) {
+    if (!mPresentation) {
+        SUBTITLE_LOGE("%s: presentation is not ready, lang = %s",
+                      __func__, lang.empty() ? " " : lang.c_str());
+        return false;
+    }
+    mPresentation->setSubTranslationLanguage(lang);
+    return true;
+}
+
 bool Subtitle::resetForSeek() {
     mPendingAction = ACTION_SUBTITLE_RESET_FOR_SEEK;
     mCv.notify_all();

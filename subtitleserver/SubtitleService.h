@@ -89,6 +89,8 @@ public:
     bool show();
     bool hide();
 
+    bool setSubTranslationLanguage(const std::string& lang);
+
 private:
     std::shared_ptr<Subtitle> mSubtiles;
 

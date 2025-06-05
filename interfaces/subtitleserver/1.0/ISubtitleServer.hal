@@ -129,5 +129,10 @@ interface ISubtitleServer {
   setSurfaceViewRect(int32_t sId, int32_t x, int32_t y, int32_t w, int32_t h)
     generates (Result result);
 
-
+  /* Enable and disable subtitle AI translation.
+   \param lang: the two bytes country code in <ISO 3166 Country Codes>, which are lowercase characters.
+                - Enable subtitle AI translation if the 'lang' is supported.
+                - Disable subtitle AI translation if set 'lang' to "" or empty.
+  */
+  setSubTranslationLanguage(int32_t sId, string lang) generates (Result result);
 };

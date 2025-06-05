@@ -144,8 +144,15 @@ cc_binary {
     "subtitle/parser/ExtParser/VobSubIndex.cpp",
 
     "subtitle/render/AndroidHidlRemoteRender.cpp",
+ 
+    // For AI translation
+    "subtitle/ai_translation/LooperMessageProcess.cpp",
+    "subtitle/ai_translation/SubtitleAiTranslation.cpp",
+    "subtitle/ai_translation/SubtitleWorkerThread.cpp",
   ],
 
+  // For AI translation
+  header_libs: ["nnsdk_headers"],
 
   local_include_dirs: [
     "io",

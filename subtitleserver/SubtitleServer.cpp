@@ -475,6 +475,17 @@ Return<Result> SubtitleServer::setPipId(int32_t sId, int32_t mode, int32_t id) {
     return Result::OK;
 }
 
+Return<Result> SubtitleServer::setSubTranslationLanguage(int32_t sId, const hidl_string& lang) {
+    std::shared_ptr<SubtitleService> ss = getSubtitleService(sId);
+    if (ss == nullptr) {
+        return Result::FAIL;
+    }
+    SUBTITLE_LOGI("%s: lang=%s", __func__, lang.c_str());
+    auto ret = ss->setSubTranslationLanguage(lang);
+    return ret ? Result::OK : Result::FAIL;
+}
+
+
 Return<Result> SubtitleServer::userDataOpen(int32_t sId) {
     Watchdog watchdog(kTimeout);
     SUBTITLE_LOGI("%s", __func__);

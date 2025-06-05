@@ -422,6 +422,20 @@ bool SubtitleServerClient::setSubLanguage(std::string lang) {
     return r.isOk();
 }
 
+int SubtitleServerClient::setSubTranslationLanguage(std::string lang)
+{
+    Mutex::Autolock _l(mLock);
+    SUBTITLE_LOGI("%s: lang=%s", __func__, lang.empty() ? " " : lang.c_str());
+
+    if (mRemote == nullptr || !hasInit) {
+        SUBTITLE_LOGE("%s: the client is not ready", __func__);
+        return -1;
+    }
+
+    auto r = mRemote->setSubTranslationLanguage(mSessionId, lang);
+    return r.isOk();
+}
+
 bool SubtitleServerClient::setStartTimeStamp(int startTime) {
     Mutex::Autolock _l(mLock);
     if (mRemote == nullptr && !hasInit) {

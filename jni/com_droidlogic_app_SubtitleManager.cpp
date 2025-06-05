@@ -436,6 +436,25 @@ static void nativeSetSubLanguage(JNIEnv* env, jclass clazz, jstring jlang) {
     }
 }
 
+// jlang: the two bytes country code in <ISO 3166 Country Codes>,
+//       which are lowercase characters.
+//       Use "" or empty if resume to original language subtitle.
+// return:
+//       0  success to set translation language
+//       1  the language is not supported
+//      -1  error happened
+static jint nativeSetSubTranslationLanguage(JNIEnv* env, jclass clazz, jstring jlang) {
+    int ret = -1;
+    if (getJniContext()->mSubContext != nullptr) {
+        const char *lang = env->GetStringUTFChars(jlang, nullptr);
+        ret = getJniContext()->mSubContext->setSubTranslationLanguage(lang);
+        env->ReleaseStringUTFChars(jlang, lang);
+        return ret;
+    }
+    ALOGE("%s: Subtitle Connection not established", __func__);
+    return ret;
+}
+
 static void nativeSetStartTimeStamp(JNIEnv* env, jclass clazz, jint startTime) {
     if (getJniContext()->mSubContext != nullptr) {
         getJniContext()->mSubContext->setStartTimeStamp(startTime);
@@ -622,6 +641,7 @@ static JNINativeMethod SubtitleManager_Methods[] = {
     {"nativeSetSubType", "(I)V", (void *)nativeSetSubType},
     {"nativeGetSubLanguage", "(I)Ljava/lang/String;", (void *)nativeGetSubLanguage},
     {"nativeSetSubLanguage", "(Ljava/lang/String;)V", (void *)nativeSetSubLanguage},
+    {"nativeSetSubTranslationLanguage", "(Ljava/lang/String;)I", (int *)nativeSetSubTranslationLanguage},
     {"nativeSetStartTimeStamp", "(I)V", (void *)nativeSetStartTimeStamp},
     {"nativeSetPlayerType", "(I)V", (void *)nativeSetPlayerType},
     {"nativeSetSctePid", "(I)V", (void *)nativeSetSctePid},

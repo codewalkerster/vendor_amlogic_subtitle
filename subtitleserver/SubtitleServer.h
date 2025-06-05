@@ -126,6 +126,7 @@ public:
     Return<Result> setSurfaceViewRect(int32_t sId, int32_t x, int32_t y, int32_t w, int32_t h) override;
     Return<Result> setPipId(int32_t sId, int32_t mode, int32_t id) override;
 
+    Return<Result> setSubTranslationLanguage(int32_t sId, const hidl_string& lang) override;
 
     // Methods from ::android::hidl::base::V1_0::IBase follow.
     Return<void> debug(const hidl_handle& fd, const hidl_vec<hidl_string>& args) override;

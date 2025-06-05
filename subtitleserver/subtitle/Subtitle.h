@@ -76,6 +76,9 @@ public:
 
     bool show();
     bool hide();
+
+    bool setSubTranslationLanguage(const std::string& lang);
+
 private:
     static const int ACTION_SUBTITLE_RECEIVED_SUBTYPE = 1;
     static const int ACTION_SUBTITLE_RESET_FOR_SEEK = 2;

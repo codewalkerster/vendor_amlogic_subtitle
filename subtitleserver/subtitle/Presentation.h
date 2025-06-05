@@ -33,17 +33,21 @@
 #include <utils/Timers.h>
 #include <utils/Mutex.h>
 #include <utils/Looper.h>
-#include "Parser.h"
-
-#include "Render.h"
 #include "Display.h"
+
+#include "Parser.h"
+#include "Render.h"
+
+#include "ai_translation/SubtitleAiTranslation.h"
+
 
 using android::sp;
 using android::Looper;
 using android::Message;
 using android::Mutex;
 
-class Presentation : public ParserSubdataNotifier {
+class Presentation : public ParserSubdataNotifier,
+                     public SubtitleAiTranslation::ISubtitleAiTranslationObserver {
 public:
     Presentation(std::shared_ptr<Display> disp);
     virtual ~Presentation();
@@ -62,6 +66,13 @@ public:
     virtual void notifySubdataAdded();
 
     void dump(int fd, const char *prefix);
+
+    // This is the trigger of Ai translation
+    bool setSubTranslationLanguage(const std::string& lang);
+
+    // ISubtitleAiTranslationObserver
+    void onReceiveTranslatedText(const std::shared_ptr<AML_SPUVAR>& item) override;
+    void onError(const std::string& reason) override;
 
 private:
     class MessageProcess : public android::MessageHandler {
@@ -109,7 +120,13 @@ private:
     // we need a mutex to protect it
     std::mutex mMutex;
 
-
+    std::unique_ptr<SubtitleAiTranslation> mAiTranslation;
+    std::mutex mRenderMutex;
+    void send2RenderDisplay(std::shared_ptr<AML_SPUVAR> spu);
+    void showSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu, int type);
+    void hideSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu);
+    void removeSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu);
+    void resetSubtitleItem();
 };
 
 #endif

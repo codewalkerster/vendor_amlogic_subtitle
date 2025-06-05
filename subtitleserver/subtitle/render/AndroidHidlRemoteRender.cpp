@@ -136,12 +136,15 @@ bool AndroidHidlRemoteRender::postSubtitleData()
             mParseType = ((*it)->isQtoneData) ? TYPE_SUBTITLE_Q_TONE_DATA: mParseType;
             queue->postDisplayData((const char *)((*it)->spu_data), mParseType, x, y, width,
                                     height, videoWidth, videoHeight, size, SHOWING_SUB, objectSegmentId);
+            mShowingSubs.clear();
             return true;
         } else {
+            mShowingSubs.clear();
             return false;
         }
     }
 
+    mShowingSubs.clear();
     return false;
 }
 

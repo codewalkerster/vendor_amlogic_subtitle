@@ -188,6 +188,12 @@ Presentation::~Presentation()
         mMsgProcess->join();
         mMsgProcess = nullptr; // late sp delete it.
     }
+
+    // Housekeeping, especially for direct render in Linux
+    if (mRender) {
+        resetSubtitleItem();
+        mRender.reset();
+    }
 }
 
 bool Presentation::notifyStartTimeStamp(int64_t startTime)
@@ -263,6 +269,10 @@ bool Presentation::startPresent(std::shared_ptr<Parser> parser) {
 bool Presentation::stopPresent()
 {
     SUBTITLE_LOGI("enter %s", __func__);
+    if (mAiTranslation) {
+        mAiTranslation.reset();
+    }
+
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
         //delete mMsgProcess;
@@ -353,6 +363,11 @@ bool Presentation::resetForSeek()
     if (mMsgProcess != nullptr) {
         mMsgProcess->notifyMessage(MessageProcess::MSG_RESET_MESSAGE_QUEUE);
     }
+
+    if (mAiTranslation) {
+        mAiTranslation->resetForSeek();
+    }
+
     return true;
 }
 
@@ -378,6 +393,110 @@ bool Presentation::hide() {
     }
     return false;
 }
+
+bool Presentation::setSubTranslationLanguage(const std::string& lang) {
+    SUBTITLE_LOGI("%s: lang=%s", __func__, lang.empty() ? " " : lang.c_str());
+
+    if (!mAiTranslation) {
+        mAiTranslation = std::make_unique<SubtitleAiTranslation>(*this);
+        if (!mAiTranslation) {
+            SUBTITLE_LOGE("%s: fail to create AI translation", __func__);
+            return false;
+        }
+    }
+
+    if (!lang.empty() && !mAiTranslation->isLanguageAvailable(lang)) {
+        SUBTITLE_LOGE("%s: language %s isn't supported", __func__, lang.c_str());
+        return false;
+    }
+    return mAiTranslation->loadAaiLanguage(lang);
+}
+
+// ISubtitleAiTranslationObserver
+void Presentation::onReceiveTranslatedText(const std::shared_ptr<AML_SPUVAR>& item) {
+    if (!item) {
+       SUBTITLE_LOGE("%s: unexpected null spu", __func__);
+       return;
+    }
+    if (!mRender) {
+       SUBTITLE_LOGE("%s: render is stopped", __func__);
+       return;
+    }
+    if (!mParser) {
+       SUBTITLE_LOGE("%s: parser is stopped", __func__);
+       return;
+    }
+
+    showSubtitleItem(item, mParser->getParseType());
+}
+
+void Presentation::onError(const std::string& reason) {
+    SUBTITLE_LOGE("%s: %s\n", __func__, reason.c_str());
+}
+
+void Presentation::send2RenderDisplay(std::shared_ptr<AML_SPUVAR> spu) {
+    if (!spu) {
+       SUBTITLE_LOGE("%s: unexpected null spu", __func__);
+       return;
+    }
+    if (!mRender) {
+       SUBTITLE_LOGE("%s: render is null", __func__);
+       return;
+    }
+
+    if (mAiTranslation) {
+        // AI translation is only for SUBTITLE_TEXT_DISPLAY
+        if (spu->spu_data && spu->buffer_size > 0
+            && spu->spu_width == 0 && spu->spu_height == 0) {
+            mAiTranslation->push2Translate(spu);
+            return;
+        }
+    }
+
+    if (!mParser) {
+       SUBTITLE_LOGE("%s: parser is null", __func__);
+       return;
+    }
+    showSubtitleItem(spu, mParser->getParseType());
+}
+
+void Presentation::showSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu, int type) {
+    std::unique_lock<std::mutex> autolock(mRenderMutex);
+
+    if (!mRender) {
+       SUBTITLE_LOGE("%s: render is null", __func__);
+       return;
+    }
+    mRender->showSubtitleItem(spu, type);
+}
+
+void Presentation::hideSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu) {
+    std::unique_lock<std::mutex> autolock(mRenderMutex);
+    if (!mRender) {
+       SUBTITLE_LOGE("%s: render is null", __func__);
+       return;
+    }
+    mRender->hideSubtitleItem(spu);
+}
+
+void Presentation::removeSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu) {
+    std::unique_lock<std::mutex> autolock(mRenderMutex);
+    if (!mRender) {
+       SUBTITLE_LOGE("%s: render is null", __func__);
+       return;
+    }
+    mRender->removeSubtitleItem(spu);
+}
+
+void Presentation::resetSubtitleItem() {
+    std::unique_lock<std::mutex> autolock(mRenderMutex);
+    if (!mRender) {
+       SUBTITLE_LOGE("%s: render is null", __func__);
+       return;
+    }
+    mRender->resetSubtitleItem();
+}
+
 
 void Presentation::dump(int fd, const char *prefix)
 {
@@ -466,8 +585,8 @@ void Presentation::MessageProcess::handleMessage(const Message& message)
 {
     // we sync from video pts. but some player not start video
     // when decoded and present subtitle. so we need wait video pts
-    if (mPresent->mCurrentPresentRelativeTime < 0) {
-        SUBTITLE_LOGE("Video not started, wait. 200ms ...");
+    if (mPresent->mCurrentPresentRelativeTime <= 0) {
+        SUBTITLE_LOGI("Video not started, wait. 200ms ...");
         mLooper->sendMessageDelayed(ms2ns(200), this, Message(MSG_PTS_TIME_CHECK_SPU));
         return;
     }
@@ -541,12 +660,12 @@ void Presentation::MessageProcess::handleExtSub(const Message& message)
                                   spu->pts/DVB_TIME_MULTI - ns2ms(timestampNs),
                                   spu->spu_data, spu->buffer_size);
                     mPresent->mEmittedFaddingSpu.clear();
-                    mPresent->mRender->showSubtitleItem(spu, mPresent->mParser->getParseType());
+                    mPresent->send2RenderDisplay(spu);
                 }
                 mLastShowingSpu = spu;
             }
             else if (mLastShowingSpu != nullptr) {
-                mPresent->mRender->resetSubtitleItem();
+                mPresent->resetSubtitleItem();
                 mLastShowingSpu = nullptr;
             }
         }
@@ -554,7 +673,7 @@ void Presentation::MessageProcess::handleExtSub(const Message& message)
         case MSG_RESET_MESSAGE_QUEUE: {
             SUBTITLE_LOGI("%s: MSG_RESET_MESSAGE_QUEUE", __func__);
             mPresent->mEmittedFaddingSpu.clear();
-            mPresent->mRender->resetSubtitleItem();
+            mPresent->resetSubtitleItem();
         }
         break;
         default: break;
@@ -754,10 +873,10 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
                                 }
                             }
                             else {
-                                mPresent->mRender->hideSubtitleItem(spu);
+                                mPresent->hideSubtitleItem(spu);
                             }
                         } else {
-                             mPresent->mRender->showSubtitleItem(spu, mPresent->mParser->getParseType());
+                             mPresent->send2RenderDisplay(spu);
                         }
                         // Fix fadding time, if not valid.
                         // Note: PGS has its own presentation solution, the delay time is calculated
@@ -777,7 +896,7 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
                         std::shared_ptr<AML_SPUVAR> cachedSpu = mPresent->mEmittedFaddingSpu.front();
                         if (cachedSpu != nullptr) {
                             mPresent->mEmittedFaddingSpu.pop_front();
-                            mPresent->mRender->removeSubtitleItem(cachedSpu);
+                            mPresent->removeSubtitleItem(cachedSpu);
                         }
                         mPresent->mEmittedFaddingSpu.push_back(spu);
                     } else if (pts <= timestamp + tolerance
@@ -790,7 +909,7 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
                                       spu->pts, spu->pts/DVB_TIME_MULTI,
                                       spu->m_delay, spu->m_delay/DVB_TIME_MULTI);
                         mPresent->mEmittedFaddingSpu.clear();
-                        mPresent->mRender->resetSubtitleItem();
+                        mPresent->resetSubtitleItem();
                     } else {
                         uint64_t delayTime = spu->isExtSub ? ms2ns(100):pts-timestamp;
                         mLooper->sendMessageDelayed(delayTime, this, Message(MSG_PTS_TIME_CHECK_SPU));
@@ -824,9 +943,9 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
                                       spu->isTtxSubtitle);
 
                         if (spu->isKeepShowing == false) {
-                            mPresent->mRender->hideSubtitleItem(spu);
+                            mPresent->hideSubtitleItem(spu);
                         } else {
-                            mPresent->mRender->removeSubtitleItem(spu);
+                            mPresent->removeSubtitleItem(spu);
                         }
                    }
                    else if  (timestamp != 0 && delayed - timestamp > ahead_delay_tor) {
@@ -845,9 +964,9 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
                                       spu->spu_data, spu->spu_data,
                                       timestamp, delayed, ahead_delay_tor);
                         if (spu->isKeepShowing == false) {
-                            mPresent->mRender->hideSubtitleItem(spu);
+                            mPresent->hideSubtitleItem(spu);
                         } else {
-                            mPresent->mRender->removeSubtitleItem(spu);
+                            mPresent->removeSubtitleItem(spu);
                         }
                     }
 
@@ -873,7 +992,7 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
             SUBTITLE_LOGI("%s: MSG_RESET_MESSAGE_QUEUE", __func__);
             mPresent->mEmittedShowingSpu.clear();
             mPresent->mEmittedFaddingSpu.clear();
-            mPresent->mRender->resetSubtitleItem();
+            mPresent->resetSubtitleItem();
         }
         break;
         default:

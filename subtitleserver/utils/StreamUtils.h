@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2024 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Amlogic, Inc. All rights reserved.
  *
  * All information contained herein is Amlogic confidential.
  *
@@ -24,10 +24,28 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __SUBTITLE_STREAM_UTILS_H__
-#define __SUBTITLE_STREAM_UTILS_H__
+#pragma once
 
-//TODO: move to utils directory
+#include <time.h>
+
+#define RETURN_CASE_STR(x)                                              \
+  case x:                                                               \
+    return #x
+
+static inline uint64_t getCurrentTimeMs()
+{
+  timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return static_cast<uint64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / (1000 * 1000);
+}
+
+static inline int64_t pts2Ms(int64_t pts) {
+    return pts/90;
+}
+
+static inline int64_t ms2Pts(int64_t ms) {
+    return ms*90;
+}
 
 static inline uint32_t bytestream_get_be32(const uint8_t **ptr) {
     uint32_t tmp;
@@ -117,4 +135,3 @@ static inline uint64_t subPeekAsUint64(const char* buffer) {
     return value;
 }
 
-#endif // __SUBTITLE_STREAM_UTILS_H__

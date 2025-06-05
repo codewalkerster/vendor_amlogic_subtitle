@@ -32,7 +32,6 @@
 
 #include "ParserFactory.h"
 #include "VideoInfo.h"
-#include <utils/Timers.h>
 
 
 // Follow the latest solution of ffmpeg 7.0.1
@@ -107,13 +106,6 @@ static std::string int2StrWithLen(int num, int len) {
         return "-" + str;
     }
     return str;
-}
-
-static uint64_t getCurrentTimeMs()
-{
-  timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return static_cast<uint64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / (1000 * 1000);
 }
 
 }
