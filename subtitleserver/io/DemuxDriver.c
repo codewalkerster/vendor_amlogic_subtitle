@@ -354,7 +354,11 @@ int DemuxClose(int dev_no) {
         if (dev->drv->wake) {
             dev->drv->wake(dev);
         }
-        pthread_join(dev->thread, NULL);
+
+        if (dev->thread != 0) {
+            pthread_join(dev->thread, NULL);
+            dev->thread = 0;
+        }
         for (i = 0; i < DEMUX_FILTER_COUNT; i++) {
             dmx_free_filter(dev, &dev->filters[i]);
         }
