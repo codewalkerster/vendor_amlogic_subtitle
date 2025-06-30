@@ -113,13 +113,15 @@ bool SubtitleAiTranslation::loadAaiLanguage(const std::string& lang) {
         }
         if (hasUncompletedJob()) {
             SUBTITLE_LOGI("%s: has uncompleted job", __func__);
-            mWorkerThread.QueueJob([this] { deInitAai(); });
-        } else {
-            if (mWorkerThread.IsThreadRunning()) {
-                mWorkerThread.Stop();
-            }
-            deInitAai();
+            mWorkerThread.ClearJobQueue(true);
         }
+        if (hasUncompletedJob()) {
+            SUBTITLE_LOGE("%s: something was wrong as has uncompleted jobs", __func__);
+        }
+        if (mWorkerThread.IsThreadRunning()) {
+            mWorkerThread.Stop();
+        }
+        deInitAai();
 
         // Just stop nn
         if (lang.empty()) {
@@ -190,15 +192,15 @@ void SubtitleAiTranslation::push2Translate(std::shared_ptr<AML_SPUVAR> item) {
 void SubtitleAiTranslation::resetForSeek() {
     SUBTITLE_LOGI("%s", __func__);
     std::unique_lock<std::mutex> autolock(mMutex);
-    mItemQueue.clear();
     if (Mt_Handler && mIsAiTranslationReady) {
-        stopTranslation = true;
+        mStopTranslation = true;
     }
+    mItemQueue.clear();
 }
 
 void SubtitleAiTranslation::HandleMessage(const Message& message) {
     std::unique_lock<std::mutex> autolock(mMutex);
-    if (mItemQueue.size() == 0 || stopTranslation) {
+    if (mItemQueue.size() == 0 || mStopTranslation) {
         return;
     }
 
@@ -255,7 +257,7 @@ void SubtitleAiTranslation::translateText(const std::string& originalText) {
     SUBTITLE_LOGI("%s(language=%s): aai_iva_mt_detect start: =====> %s", __func__,
                   mTargetLanguage.c_str(), Mt_InputString.text_input.c_str());
 
-    stopTranslation = false;
+    mStopTranslation = false;
     auto ret = mNnsdkCaller.detect(Mt_Handler, Mt_InputString, Mt_OutString,
                                    [&](const std::string& translatedText, int complete) {
                                        return SubtitleAiTranslation::onAaiCallback(translatedText,
@@ -282,11 +284,11 @@ void SubtitleAiTranslation::translateText(const std::string& originalText) {
 
 int SubtitleAiTranslation::onAaiCallback(const std::string& translatedText, int complete) {
     assert(mWorkerThread.InWorkerThreadContext());
-    SUBTITLE_LOGI("%s: (%s) ----> %s", __func__, complete == 0 ? "hasMore" : "complete",
-                  translatedText.c_str());
+    SUBTITLE_LOGI("%s: (%s)%s----> %s", __func__, complete == 0 ? "hasMore" : "complete",
+                  mStopTranslation ? "(Is stopping)" : " ", translatedText.c_str());
     dumpSpendTime("aai_iva_mt_detect");
 
-    if (stopTranslation) {
+    if (mStopTranslation) {
         return -1;
     }
 
@@ -307,8 +309,9 @@ void SubtitleAiTranslation::reportResult(const std::string& origText,
     }
 
     if (mItemQueue.size() == 0) {
-        SUBTITLE_LOGE("%s: unexpected 0 queue size, origAndTranslatedText = %s", __func__,
-                      origAndTranslatedText.c_str());
+        SUBTITLE_LOGE(
+            "%s: unexpected 0 queue size, origAndTranslatedText = %s, mStopTranslation = %d",
+            __func__, origAndTranslatedText.c_str(), mStopTranslation);
         return;
     }
 

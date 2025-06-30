@@ -143,14 +143,13 @@ static std::shared_ptr<AML_SPUVAR> getShowingSpuFromList(
 
 // Some cue may showing at current pts. but cue start pts may not the same
 // we filter this, when the cue is too old, but not run out of it's life time.
-void reAssembleSpuList(std::list<std::shared_ptr<AML_SPUVAR>> &list)
-{
+void reAssembleSpuList(std::list<std::shared_ptr<AML_SPUVAR>> &list) {
     if (list.size() <= 1) return;
 
     std::shared_ptr<AML_SPUVAR> spu = list.back();
 
     for (auto it = list.begin(); it != list.end();) {
-       uint64_t ptsDiff = spu->pts - (*it)->pts;
+        uint64_t ptsDiff = spu->pts - (*it)->pts;
 
         if (ptsDiff > convertNs2DvbTime(ms2ns(200))) {
             it = list.erase(it);
@@ -175,18 +174,17 @@ Presentation::Presentation(std::shared_ptr<Display> disp) :
     mMsgProcess = nullptr; // only access in threadloop.
 }
 
-Presentation::~Presentation()
-{
+Presentation::~Presentation() {
     SUBTITLE_LOGI("enter %s", __func__);
 
-    //TODO: do we need poke thread exit immediately? by post a message?
-    //      then need add a lock, for protect access mLooper in multi-thread
+    // TODO: do we need poke thread exit immediately? by post a message?
+    //       then need add a lock, for protect access mLooper in multi-thread
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
-        //delete mMsgProcess;
-        // We do not delete here, let sp pointer do this!
+        // delete mMsgProcess;
+        //  We do not delete here, let sp pointer do this!
         mMsgProcess->join();
-        mMsgProcess = nullptr; // late sp delete it.
+        mMsgProcess = nullptr;  // late sp delete it.
     }
 
     // Housekeeping, especially for direct render in Linux
@@ -206,8 +204,7 @@ bool Presentation::notifyStartTimeStamp(int64_t startTime)
     return true;
 }
 
-bool Presentation::syncCurrentPresentTime(int64_t pts)
-{
+bool Presentation::syncCurrentPresentTime(int64_t pts) {
     if (mSubtitlePts32Bit) {
         pts &= TSYNC_32_BIT_PTS;
     }
@@ -266,8 +263,7 @@ bool Presentation::startPresent(std::shared_ptr<Parser> parser) {
     return true;
 }
 
-bool Presentation::stopPresent()
-{
+bool Presentation::stopPresent() {
     SUBTITLE_LOGI("enter %s", __func__);
     if (mAiTranslation) {
         mAiTranslation.reset();
@@ -275,16 +271,16 @@ bool Presentation::stopPresent()
 
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
-        //delete mMsgProcess;
-        // We do not delete here, let sp pointer do this!
+        // delete mMsgProcess;
+        //  We do not delete here, let sp pointer do this!
         mMsgProcess->join();
         mMsgProcess->decStrong(nullptr);
-        mMsgProcess = nullptr; // late sp delete it.
+        mMsgProcess = nullptr;  // late sp delete it.
     }
     return true;
 }
 
-//ASS/SSA subtitle may have two continuous packets which have the same pts.
+// ASS/SSA subtitle may have two continuous packets which have the same pts.
 bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1,
                                           std::shared_ptr<AML_SPUVAR> spu2) {
     if (!spu1 || !spu2) {
@@ -292,17 +288,19 @@ bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1,
         return false;
     }
     if (spu1->isExtSub || spu1->isImmediatePresent || !spu1->isSimpleText) {
-        SUBTITLE_LOGE("%s: spu1 validation failed. isExtSub=%d, isImmediatePresent=%d, isSimpleText=%d",
-                      __func__, spu1->isExtSub, spu1->isImmediatePresent, spu1->isSimpleText);
+        SUBTITLE_LOGE(
+            "%s: spu1 validation failed. isExtSub=%d, isImmediatePresent=%d, isSimpleText=%d",
+            __func__, spu1->isExtSub, spu1->isImmediatePresent, spu1->isSimpleText);
         return false;
     }
     if (spu2->isExtSub || spu2->isImmediatePresent || !spu2->isSimpleText) {
-        SUBTITLE_LOGE("%s: spu2 validation failed. isExtSub=%d, isImmediatePresent=%d, isSimpleText=%d",
-                      __func__, spu2->isExtSub, spu2->isImmediatePresent, spu2->isSimpleText);
+        SUBTITLE_LOGE(
+            "%s: spu2 validation failed. isExtSub=%d, isImmediatePresent=%d, isSimpleText=%d",
+            __func__, spu2->isExtSub, spu2->isImmediatePresent, spu2->isSimpleText);
         return false;
     }
     if (spu1->pts != spu2->pts) {
-        SUBTITLE_LOGE("%s: the pts of spu1 and spu2 are different",__func__);
+        SUBTITLE_LOGE("%s: the pts of spu1 and spu2 are different", __func__);
         return false;
     }
 
@@ -311,7 +309,7 @@ bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1,
     int newSize = dataLen1 + 1 + dataLen2 + 1;
     SUBTITLE_LOGI("combine pts:%" PRId64 ", spu1 size:%d, spu2 size:%d, new buffer size:%d",
                   spu1->pts, dataLen1, dataLen2, newSize);
-    uint8_t* newBuffer = new uint8_t[newSize]();
+    uint8_t *newBuffer = new uint8_t[newSize]();
     strncpy((char *)newBuffer, (char *)spu1->spu_data, dataLen1);
     strncat((char *)newBuffer, "\n", 1);
     strncat((char *)newBuffer, (char *)spu2->spu_data, dataLen2);
@@ -328,8 +326,7 @@ bool Presentation::combineSamePtsSubtitle(std::shared_ptr<AML_SPUVAR> spu1,
     return true;
 }
 
-bool static inline isMore32Bit(int64_t pts)
-{
+bool static inline isMore32Bit(int64_t pts) {
     if (((pts >> 32) & HIGH_32_BIT_PTS) > 0) {
         return true;
     }
@@ -337,18 +334,17 @@ bool static inline isMore32Bit(int64_t pts)
     return false;
 }
 
-//tsync only support 32 bit pts, so if video pts from tsync
-//is more than 32 bits, subtitle pts will change to 32 bit pts.
-//mediasync support 64 bit pts which don't need change.
-bool Presentation::compareBitAndSyncPts(std::shared_ptr<AML_SPUVAR> spu, int64_t vPts)
-{
+// tsync only support 32 bit pts, so if video pts from tsync
+// is more than 32 bits, subtitle pts will change to 32 bit pts.
+// mediasync support 64 bit pts which don't need change.
+bool Presentation::compareBitAndSyncPts(std::shared_ptr<AML_SPUVAR> spu, int64_t vPts) {
     if (spu->pts <= 0 || vPts <= 0) {
         return false;
     }
 
     if (isMore32Bit(spu->pts) && !isMore32Bit(vPts)) {
-        SUBTITLE_LOGI("SUB PTS and video pts bits diff, before subpts: %" PRId64
-                      ", vpts:%" PRId64, spu->pts, vPts);
+        SUBTITLE_LOGI("SUB PTS and video pts bits diff, before subpts: %" PRId64 ", vpts:%" PRId64,
+                      spu->pts, vPts);
         spu->pts &= TSYNC_32_BIT_PTS;
         spu->m_delay &= TSYNC_32_BIT_PTS;
         return true;
@@ -357,8 +353,8 @@ bool Presentation::compareBitAndSyncPts(std::shared_ptr<AML_SPUVAR> spu, int64_t
     return false;
 }
 
-bool Presentation::resetForSeek()
-{
+bool Presentation::resetForSeek() {
+    SUBTITLE_LOGI("enter %s", __func__);
     std::unique_lock<std::mutex> autolock(mMutex);
     if (mMsgProcess != nullptr) {
         mMsgProcess->notifyMessage(MessageProcess::MSG_RESET_MESSAGE_QUEUE);
@@ -367,7 +363,6 @@ bool Presentation::resetForSeek()
     if (mAiTranslation) {
         mAiTranslation->resetForSeek();
     }
-
     return true;
 }
 
@@ -378,7 +373,6 @@ void Presentation::notifySubdataAdded()
         mMsgProcess->notifyMessage(MessageProcess::MSG_PTS_TIME_CHECK_SPU);
     }
 }
-
 
 bool Presentation::show() {
     if (mRender != nullptr) {
@@ -394,10 +388,12 @@ bool Presentation::hide() {
     return false;
 }
 
-bool Presentation::setSubTranslationLanguage(const std::string& lang) {
+bool Presentation::setSubTranslationLanguage(const std::string &lang) {
     SUBTITLE_LOGI("%s: lang=%s", __func__, lang.empty() ? " " : lang.c_str());
 
-    if (!mAiTranslation) {
+    if (mAiTranslation) {
+        resetForSeek();
+    } else {
         mAiTranslation = std::make_unique<SubtitleAiTranslation>(*this);
         if (!mAiTranslation) {
             SUBTITLE_LOGE("%s: fail to create AI translation", __func__);
@@ -413,77 +409,76 @@ bool Presentation::setSubTranslationLanguage(const std::string& lang) {
 }
 
 // ISubtitleAiTranslationObserver
-void Presentation::onReceiveTranslatedText(const std::shared_ptr<AML_SPUVAR>& item) {
+void Presentation::onReceiveTranslatedText(const std::shared_ptr<AML_SPUVAR> &item) {
     if (!item) {
-       SUBTITLE_LOGE("%s: unexpected null spu", __func__);
-       return;
+        SUBTITLE_LOGE("%s: unexpected null spu", __func__);
+        return;
     }
     if (!mRender) {
-       SUBTITLE_LOGE("%s: render is stopped", __func__);
-       return;
+        SUBTITLE_LOGE("%s: render is stopped", __func__);
+        return;
     }
     if (!mParser) {
-       SUBTITLE_LOGE("%s: parser is stopped", __func__);
-       return;
+        SUBTITLE_LOGE("%s: parser is stopped", __func__);
+        return;
     }
 
     showSubtitleItem(item, mParser->getParseType());
 }
 
-void Presentation::onError(const std::string& reason) {
-    SUBTITLE_LOGE("%s: %s\n", __func__, reason.c_str());
+void Presentation::onError(const std::string &reason) {
+    SUBTITLE_LOGE("%s: %s", __func__, reason.c_str());
 }
 
 void Presentation::send2RenderDisplay(std::shared_ptr<AML_SPUVAR> spu) {
     if (!spu) {
-       SUBTITLE_LOGE("%s: unexpected null spu", __func__);
-       return;
+        SUBTITLE_LOGE("%s: unexpected null spu", __func__);
+        return;
     }
     if (!mRender) {
-       SUBTITLE_LOGE("%s: render is null", __func__);
-       return;
+        SUBTITLE_LOGE("%s: render is null", __func__);
+        return;
     }
 
     if (mAiTranslation) {
         // AI translation is only for SUBTITLE_TEXT_DISPLAY
-        if (spu->spu_data && spu->buffer_size > 0
-            && spu->spu_width == 0 && spu->spu_height == 0) {
+        if (spu->spu_data && spu->buffer_size > 0 && spu->spu_width == 0 && spu->spu_height == 0) {
             mAiTranslation->push2Translate(spu);
             return;
         }
     }
 
     if (!mParser) {
-       SUBTITLE_LOGE("%s: parser is null", __func__);
-       return;
+        SUBTITLE_LOGE("%s: parser is null", __func__);
+        return;
     }
     showSubtitleItem(spu, mParser->getParseType());
 }
 
-void Presentation::showSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu, int type) {
+void Presentation::showSubtitleItem(const std::shared_ptr<AML_SPUVAR> &spu, int type) {
     std::unique_lock<std::mutex> autolock(mRenderMutex);
 
     if (!mRender) {
-       SUBTITLE_LOGE("%s: render is null", __func__);
-       return;
+        SUBTITLE_LOGE("%s: render is null", __func__);
+        return;
     }
     mRender->showSubtitleItem(spu, type);
 }
 
-void Presentation::hideSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu) {
+void Presentation::hideSubtitleItem(const std::shared_ptr<AML_SPUVAR> &spu) {
     std::unique_lock<std::mutex> autolock(mRenderMutex);
     if (!mRender) {
-       SUBTITLE_LOGE("%s: render is null", __func__);
-       return;
+        SUBTITLE_LOGE("%s: render is null", __func__);
+        return;
     }
     mRender->hideSubtitleItem(spu);
 }
 
-void Presentation::removeSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu) {
+void Presentation::removeSubtitleItem(const std::shared_ptr<AML_SPUVAR> &spu) {
     std::unique_lock<std::mutex> autolock(mRenderMutex);
     if (!mRender) {
-       SUBTITLE_LOGE("%s: render is null", __func__);
-       return;
+        SUBTITLE_LOGE("%s: render is null", __func__);
+        return;
     }
     mRender->removeSubtitleItem(spu);
 }
@@ -491,8 +486,8 @@ void Presentation::removeSubtitleItem(const std::shared_ptr<AML_SPUVAR>& spu) {
 void Presentation::resetSubtitleItem() {
     std::unique_lock<std::mutex> autolock(mRenderMutex);
     if (!mRender) {
-       SUBTITLE_LOGE("%s: render is null", __func__);
-       return;
+        SUBTITLE_LOGE("%s: render is null", __func__);
+        return;
     }
     mRender->resetSubtitleItem();
 }
@@ -522,9 +517,9 @@ void Presentation::dump(int fd, const char *prefix)
     {
         dprintf(fd, "%s   Ready for showing SPUs:\n", prefix);
         auto it = mEmittedShowingSpu.begin();
-        for (; it != mEmittedShowingSpu.end();  ++it) {
+        for (; it != mEmittedShowingSpu.end(); ++it) {
             if ((*it) != nullptr) {
-                    (*it)->dump(fd, "      ");
+                (*it)->dump(fd, "      ");
             }
         }
     }
@@ -533,16 +528,17 @@ void Presentation::dump(int fd, const char *prefix)
     {
         dprintf(fd, "%s   Showed but not deleted SPUs:\n", prefix);
         auto it = mEmittedFaddingSpu.begin();
-        for (; it != mEmittedFaddingSpu.end();  ++it) {
+        for (; it != mEmittedFaddingSpu.end(); ++it) {
             if ((*it) != nullptr) {
-                    (*it)->dump(fd, "      ");
+                (*it)->dump(fd, "      ");
             }
         }
     }
 }
 
-Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSub)
-{
+Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSub) {
+    SUBTITLE_LOGI("enter %s", __func__);
+
     mRequestThreadExit = false;
     mPresent = present;
     mIsExtSub = isExtSub;
@@ -550,31 +546,32 @@ Presentation::MessageProcess::MessageProcess(Presentation *present, bool isExtSu
     // hold a reference for RefBase object
     // we move the inc here, before the thread started, to avoid multi-thread problem
     incStrong(nullptr);
-    mLooperThread = std::shared_ptr<std::thread>(new std::thread(&MessageProcess::looperLoop, this));
+    mLooperThread =
+        std::shared_ptr<std::thread>(new std::thread(&MessageProcess::looperLoop, this));
 }
 
-Presentation::MessageProcess::~MessageProcess()
-{
+Presentation::MessageProcess::~MessageProcess() {
     mLastShowingSpu = nullptr;
     mPresent = nullptr;
+
+    SUBTITLE_LOGI("%s: DONE", __func__);
 }
 
-void Presentation::MessageProcess::join()
-{
+void Presentation::MessageProcess::join() {
     mRequestThreadExit = true;
     if (mLooper != nullptr) {
         mLooper->removeMessages(this, MSG_PTS_TIME_CHECK_SPU);
         mLooper->wake();
     }
-    mLooperThread->join();
-    if (mLooper != nullptr) {
-        mLooper->decStrong(nullptr);
+    if (mLooperThread->joinable()) {
+        mLooperThread->join();
+    } else {
+        SUBTITLE_LOGE("%s_exception", __func__);
     }
     mLooper = nullptr;
 }
 
-bool Presentation::MessageProcess::notifyMessage(int what)
-{
+bool Presentation::MessageProcess::notifyMessage(int what) {
     if (mLooper != nullptr) {
         mLooper->sendMessage(this, Message(what));
     }
@@ -616,13 +613,16 @@ static std::list<std::shared_ptr<AML_SPUVAR>> computeShowingSpuList(
     return showingList;
 }
 
-void Presentation::MessageProcess::handleExtSub(const Message& message)
-{
+void Presentation::MessageProcess::handleExtSub(const Message &message) {
     switch (message.what) {
         case MSG_PTS_TIME_CHECK_SPU: {
             // External subtitle parser always decode all the subtitle items,
             // syncCurrentPresentTime triggers the display.
             mLooper->removeMessages(this, MSG_PTS_TIME_CHECK_SPU);
+            if (mRequestThreadExit) {
+                SUBTITLE_LOGE("%s: message process is exiting", __func__);
+                return;
+            }
 
             if (mPresent->mParser == nullptr) {
                 SUBTITLE_LOGE("%s: parser is nullptr", __func__);
@@ -681,11 +681,14 @@ void Presentation::MessageProcess::handleExtSub(const Message& message)
 }
 
 // Stream sub decode and show the subtitle when received data .
-void Presentation::MessageProcess::handleStreamSub(const Message& message)
-{
+void Presentation::MessageProcess::handleStreamSub(const Message &message) {
     switch (message.what) {
         case MSG_PTS_TIME_CHECK_SPU: {
             mLooper->removeMessages(this, MSG_PTS_TIME_CHECK_SPU);
+            if (mRequestThreadExit) {
+                SUBTITLE_LOGE("%s: message process is exiting", __func__);
+                return;
+            }
             if (mPresent->mParser == nullptr || mPresent == nullptr) {
                 SUBTITLE_LOGE("[%s:%d] Error! parser is nullptr", __func__, __LINE__);
                 return;
@@ -752,7 +755,8 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
                 }
             }
 
-            // Handle presentation showing.
+            // Handle showing
+            // =================
             if (mPresent->mEmittedShowingSpu.size() > 0) {
                 spu = mPresent->mEmittedShowingSpu.front();
 
@@ -919,7 +923,8 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
                 }
             }
 
-            // Handle presentation fadding
+            // Handle fading
+            // =================
             if (mPresent->mEmittedFaddingSpu.size() > 0) {
                 spu = mPresent->mEmittedFaddingSpu.front();
 
@@ -1000,9 +1005,9 @@ void Presentation::MessageProcess::handleStreamSub(const Message& message)
     }
 }
 
-void Presentation::MessageProcess::looperLoop()
-{
+void Presentation::MessageProcess::looperLoop() {
     mLooper = new Looper(false);
+
     if (mPresent->mCurrentPresentRelativeTime <= 0) {
         mLooper->sendMessageDelayed(ms2ns(100), this, Message(MSG_PTS_TIME_CHECK_SPU));
     } else {
@@ -1014,18 +1019,19 @@ void Presentation::MessageProcess::looperLoop()
     mPresent->mEmittedFaddingSpu.clear();
 
     while (!mRequestThreadExit) {
-        int32_t ret = mLooper->pollAll(2000);
+        int32_t ret = mLooper->pollAll(500);
         switch (ret) {
-            case -1:
-                SUBTITLE_LOGI("A_LOOPER_POLL_WAKE");
+            case android::Looper::POLL_WAKE:
+                SUBTITLE_LOGI("%s:A_LOOPER_POLL_WAKE", __func__);
                 mSubtitlePts32Bit = false;
                 break;
-            case -3: // timeout
+            case android::Looper::POLL_TIMEOUT:
                 break;
             default:
-                SUBTITLE_LOGI("default ret=%d", ret);
+                SUBTITLE_LOGI("%s:A_LOOPER_POLL_ERROR ret=%d", __func__, ret);
                 break;
         }
     }
-}
 
+    SUBTITLE_LOGI("%s: looperLoop EXITED", __func__);
+}

@@ -776,7 +776,7 @@ vbi_draw_vt_page_region(vbi_page *pg,
 	int                          i;
 	static uint8_t               flash_count = 0;
 	char                         subno_row_buffer[128] = {0};
-	char page_no_buf[8] = {0};
+	char page_no_buf[10] = {0};
 
 	if (!pg || !canvas)
 	{

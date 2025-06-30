@@ -46,7 +46,8 @@ public:
     };
 
 public:
-    SubtitleAiTranslation(ISubtitleAiTranslationObserver& observer, const std::string& targetLanguage = "");
+    SubtitleAiTranslation(ISubtitleAiTranslationObserver& observer,
+                          const std::string& targetLanguage = "");
     ~SubtitleAiTranslation();
 
     // language: the two bytes country code in <ISO 3166 Country Codes>
@@ -81,12 +82,13 @@ private:
     // Must use sp to manager refBase
     sp<LooperMessageProcess> mLooperMessageProcess;
 
-    bool stopTranslation = false;
+    bool mStopTranslation = false;
 
     bool isTextSubtitle(const std::shared_ptr<AML_SPUVAR>& item);
     void translateText(const std::string& originalText);
     int onAaiCallback(const std::string& translatedText, int complete);
-    void reportResult(const std::string& origText, const std::string& translatedText = "", bool complete = true);
+    void reportResult(const std::string& origText, const std::string& translatedText = "",
+                      bool complete = true);
     void postResult2Observer(std::shared_ptr<AML_SPUVAR> item);
 
     void doLoadAaiLanguage(const std::string& lang);
